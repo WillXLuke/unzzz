@@ -1,0 +1,13 @@
+#!/bin/sh
+# Launch unzzz from a checkout or from /usr/lib/unzzz.
+# Resolve symlinks first: /usr/bin/unzzz -> /usr/lib/unzzz/bin/unzzz.
+set -eu
+self_path=$0
+if command -v readlink >/dev/null 2>&1; then
+    resolved=$(readlink -f -- "$0" 2>/dev/null || true)
+    if [ -n "$resolved" ]; then
+        self_path=$resolved
+    fi
+fi
+here=$(CDPATH= cd -- "$(dirname -- "$self_path")/.." && pwd)
+exec env PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" python3 -m unzzz "$@"

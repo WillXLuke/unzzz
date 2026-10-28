@@ -1,0 +1,35 @@
+[Unit]
+Description=unzzz alarm server
+Documentation=file:///usr/share/doc/unzzz/README.md
+Wants=network-online.target
+After=network-online.target sound.target
+
+[Service]
+Type=exec
+User=unzzz
+Group=unzzz
+SupplementaryGroups=audio
+WorkingDirectory=/var/lib/unzzz
+ExecStart=/usr/bin/unzzz serve --data-dir /var/lib/unzzz --bind 0.0.0.0 --port 8888
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=UNZZZ_LOG_LEVEL=INFO
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+UMask=0077
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/unzzz
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

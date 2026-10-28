@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f0d">
+<meta name="robots" content="noindex, nofollow">
+<title>Alarm · unzzz</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="challenge-body">
+<main class="challenge-wrap">
+  <header class="challenge-head">
+    <span class="brand">un<span class="zzz">zzz</span></span>
+    <div class="challenge-tools">
+      <select class="lang-select" data-lang-select data-i18n-skip aria-label="Language">
+        <option value="en">English</option>
+        <option value="zh">中文</option>
+        <option value="ja">日本語</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+      </select>
+      <span class="challenge-clock" id="clock">--:--</span>
+    </div>
+  </header>
+
+  <section class="challenge-card" id="card" aria-live="polite">
+    <p class="eyebrow" id="eyebrow">Alarm shortlink</p>
+    <h1 id="headline">Loading…</h1>
+    <p class="challenge-sub" id="sub">Checking the alarm.</p>
+    <div id="content"></div>
+  </section>
+
+  <p class="challenge-note">One shared link for this alarm · each person picks their own name.</p>
+</main>
+
+<script src="/i18n.js"></script>
+<script src="/alarm.js"></script>
+</body>
+</html>

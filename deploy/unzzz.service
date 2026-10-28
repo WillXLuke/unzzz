@@ -1,0 +1,37 @@
+[Unit]
+Description=unzzz alarm server
+Documentation=file://@INSTALL_DIR@/README.md
+Wants=network-online.target
+After=network-online.target sound.target
+
+[Service]
+Type=exec
+User=unzzz
+Group=unzzz
+# ALSA devices on Raspberry Pi OS are owned by root:audio.
+SupplementaryGroups=audio
+WorkingDirectory=@INSTALL_DIR@
+ExecStart=@INSTALL_DIR@/bin/unzzz serve --data-dir @DATA_DIR@ --bind @BIND@ --port @PORT@
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=UNZZZ_LOG_LEVEL=INFO
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+UMask=0077
+
+# Hardening that still leaves room for the audio device.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@DATA_DIR@
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

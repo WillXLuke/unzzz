@@ -1,0 +1,28 @@
+#!/bin/sh
+set -e
+
+if ! getent passwd unzzz >/dev/null 2>&1; then
+    if getent group unzzz >/dev/null 2>&1; then
+        adduser --system --home /var/lib/unzzz --no-create-home \
+            --shell /usr/sbin/nologin --ingroup unzzz unzzz >/dev/null 2>&1 || true
+    else
+        adduser --system --group --home /var/lib/unzzz --no-create-home \
+            --shell /usr/sbin/nologin unzzz >/dev/null 2>&1 || true
+    fi
+fi
+if getent group audio >/dev/null 2>&1; then
+    adduser unzzz audio >/dev/null 2>&1 || true
+fi
+install -d -o unzzz -g unzzz -m 0750 /var/lib/unzzz
+
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    if command -v deb-systemd-helper >/dev/null 2>&1; then
+        deb-systemd-helper enable unzzz.service >/dev/null 2>&1 || true
+    fi
+    if command -v deb-systemd-invoke >/dev/null 2>&1; then
+        deb-systemd-invoke restart unzzz.service >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0

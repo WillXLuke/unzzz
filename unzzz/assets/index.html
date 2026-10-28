@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f0d">
+<title>unzzz — alarm server</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<div id="screen-loading" class="screen center">
+  <div class="brand brand-xl">un<span class="zzz">zzz</span></div>
+  <p class="muted">Waking the server…</p>
+</div>
+
+<div id="screen-auth" class="screen center" hidden>
+  <div class="auth-lang">
+    <select class="lang-select" data-lang-select data-i18n-skip aria-label="Language">
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+      <option value="ja">日本語</option>
+      <option value="fr">Français</option>
+      <option value="de">Deutsch</option>
+    </select>
+  </div>
+  <main class="auth-card">
+    <div class="brand brand-xl">un<span class="zzz">zzz</span></div>
+    <p class="auth-tagline">A server-side alarm clock that refuses to give up quietly.</p>
+
+    <form id="login-form" class="stack" hidden>
+      <h1>Welcome back</h1>
+      <p class="muted">Sign in to schedule alarms and manage the household.</p>
+      <label class="field">
+        <span>Admin password</span>
+        <input id="login-password" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="form-error" id="login-error" role="alert"></p>
+      <button class="btn primary wide" type="submit">Sign in</button>
+    </form>
+
+    <form id="setup-form" class="stack" hidden>
+      <h1>First run</h1>
+      <p class="muted">Choose the admin password for this alarm server. You will use it to open the control panel.</p>
+      <label class="field">
+        <span>Admin password</span>
+        <input id="setup-password" type="password" autocomplete="new-password" minlength="8" required>
+      </label>
+      <label class="field">
+        <span>Repeat password</span>
+        <input id="setup-password2" type="password" autocomplete="new-password" minlength="8" required>
+      </label>
+      <p class="form-error" id="setup-error" role="alert"></p>
+      <button class="btn primary wide" type="submit">Create password</button>
+    </form>
+
+    <p class="auth-foot">unzzz v<span id="auth-version">2.1.0</span> · keep this on your local network</p>
+  </main>
+</div>
+
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="brand">un<span class="zzz">zzz</span></div>
+    <nav class="tabs" id="tabs" aria-label="Sections">
+      <button class="tab" data-view="alarms" type="button">Alarms <span class="tab-count" id="tab-alarm-count"></span></button>
+      <button class="tab" data-view="users" type="button">Users <span class="tab-count" id="tab-user-count"></span></button>
+      <button class="tab" data-view="challenges" type="button">Challenges</button>
+      <button class="tab" data-view="music" type="button">Music</button>
+      <button class="tab" data-view="special" type="button">Special days</button>
+      <button class="tab" data-view="history" type="button">History</button>
+      <button class="tab" data-view="settings" type="button">Settings</button>
+    </nav>
+    <div class="topbar-right">
+      <select class="lang-select" data-lang-select data-i18n-skip aria-label="Language">
+        <option value="en">English</option>
+        <option value="zh">中文</option>
+        <option value="ja">日本語</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+      </select>
+      <div class="live-clock" aria-label="Server time">
+        <span id="live-clock">--:--</span>
+        <small id="live-date">—</small>
+      </div>
+      <button id="logout" class="icon-btn" type="button" title="Sign out" aria-label="Sign out">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div id="audio-warning" class="banner warn" role="status" hidden></div>
+
+    <section class="view" id="view-alarms">
+      <section class="hero">
+        <div class="hero-main">
+          <p class="eyebrow">Next alarm</p>
+          <div class="next-time" id="next-time">—</div>
+          <div class="next-meta">
+            <span id="next-label" class="next-label">Nothing scheduled</span>
+            <span id="next-days" class="muted"></span>
+          </div>
+          <div class="next-count" id="next-count"></div>
+        </div>
+        <div class="hero-side">
+          <button id="new-alarm" class="btn primary" type="button">+ New alarm</button>
+          <div class="next-progress">
+            <div class="next-progress-label">
+              <span id="answered-ratio">0 of 0 people required</span>
+              <span class="muted" id="next-mode">—</span>
+            </div>
+            <div class="progress"><span id="next-progress-fill" class="progress-fill"></span></div>
+            <p class="muted small" id="next-note">When a challenge alarm rings, each selected user gets a private shortlink — or share the alarm link and QR code.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <div class="section-head">
+          <h2>Alarms</h2>
+          <span class="muted" id="alarm-count"></span>
+        </div>
+        <div class="alarm-grid" id="alarms"></div>
+        <div class="empty" id="alarms-empty" hidden>
+          <div class="empty-icon">☀</div>
+          <h3>No alarms yet</h3>
+          <p>Add a standard alarm, or a challenge that only stops when everyone answers.</p>
+          <button class="btn primary" type="button" data-action="new-alarm">Create the first alarm</button>
+        </div>
+      </section>
+    </section>
+
+    <section class="view" id="view-users" hidden>
+      <div class="section-head">
+        <h2>Users</h2>
+        <span class="muted" id="user-count"></span>
+      </div>
+      <p class="section-lede">Add as many people as you like. Each challenge alarm can select up to six of them, and only those selected people have to answer.</p>
+
+      <form id="add-user-form" class="inline-form" autocomplete="off">
+        <label class="field grow">
+          <span>Add a user</span>
+          <input id="add-user-name" maxlength="30" placeholder="e.g. Ada" required>
+        </label>
+        <button class="btn primary" type="submit" id="add-user-btn">Add</button>
+      </form>
+
+      <ul class="user-list" id="users"></ul>
+      <p class="muted small" id="user-limit"></p>
+    </section>
+
+    <section class="view" id="view-challenges" hidden>
+      <div class="section-head">
+        <h2>Challenges</h2>
+        <span class="muted" id="question-count"></span>
+      </div>
+      <p class="section-lede">Your own questions and answers. A challenge alarm can use this pool instead of generated arithmetic. Text answers are compared ignoring case and extra spaces.</p>
+
+      <form id="question-form" class="panel stack" autocomplete="off">
+        <input type="hidden" id="question-id">
+        <div class="form-grid question-form-grid">
+          <label class="field">
+            <span>Type</span>
+            <select id="question-kind">
+              <option value="text">Text answer</option>
+              <option value="choice">Multiple choice</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Question</span>
+            <input id="question-text" maxlength="300" placeholder="e.g. What is the name of our cat?" required>
+          </label>
+        </div>
+        <label class="field" id="choice-options-field" hidden>
+          <span>Options <em class="muted">(one per line, 2–6)</em></span>
+          <textarea id="question-options" rows="4" placeholder="Red&#10;Blue&#10;Green&#10;Yellow"></textarea>
+        </label>
+        <label class="field">
+          <span id="answer-label">Answer</span>
+          <input id="question-answer" maxlength="200" placeholder="e.g. Mochi" required>
+          <small class="hint" id="answer-hint">Text answers ignore case and extra spaces.</small>
+        </label>
+        <p class="form-error" id="question-error" role="alert"></p>
+        <div class="row">
+          <button class="btn primary" type="submit" id="question-save">Add question</button>
+          <button class="btn ghost" type="button" id="question-cancel" hidden>Cancel edit</button>
+        </div>
+      </form>
+
+      <form id="question-import-form" class="panel stack" autocomplete="off">
+        <h3>Import multiple choice</h3>
+        <p class="hint">CSV format: <code>question,option a,option b,option c,option d,correct answer</code>. The answer is a letter (a–d). A header row is optional.</p>
+        <label class="field">
+          <span>CSV file</span>
+          <input id="question-csv" type="file" accept=".csv,text/csv" required>
+        </label>
+        <p class="form-error" id="question-import-error" role="alert"></p>
+        <div class="row"><button class="btn primary" type="submit" id="question-import">Import questions</button></div>
+      </form>
+
+      <div class="table-wrap question-wrap">
+        <table class="history-table">
+          <thead><tr><th>Type</th><th>Question</th><th>Answer</th><th></th></tr></thead>
+          <tbody id="questions-body"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="questions-empty" hidden>
+        <h3>No custom questions yet</h3>
+        <p>Add a few above, then choose a text or multiple-choice challenge type.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-music" hidden>
+      <div class="section-head">
+        <h2>Music</h2>
+        <span class="muted" id="music-count"></span>
+      </div>
+      <p class="section-lede">Upload the sound an alarm should play. The built-in two-tone beep is always available. WAV, MP3, OGG, OGA, FLAC, M4A, AAC and Opus are accepted, up to 25 MB each.</p>
+
+      <form id="music-form" class="panel stack" autocomplete="off">
+        <div class="form-grid">
+          <label class="field">
+            <span>Name <em class="muted">(optional)</em></span>
+            <input id="music-name" maxlength="60" placeholder="e.g. Sunrise radio">
+          </label>
+          <label class="field">
+            <span>Audio file</span>
+            <input id="music-file" type="file" accept="audio/*,.wav,.mp3,.ogg,.oga,.flac,.m4a,.aac,.opus" required>
+          </label>
+        </div>
+        <p class="form-error" id="music-error" role="alert"></p>
+        <div class="row"><button class="btn primary" type="submit" id="music-upload">Upload music</button></div>
+      </form>
+
+      <ul class="music-list" id="music-list"></ul>
+      <p class="form-error" id="music-preview-error" role="alert"></p>
+      <div class="empty" id="music-empty" hidden>
+        <h3>Using the built-in beep</h3>
+        <p>Upload a track to give an alarm its own sound.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-special" hidden>
+      <div class="section-head">
+        <h2>Special days</h2>
+        <span class="muted" id="calendar-count"></span>
+      </div>
+      <p class="section-lede">Import a year of working and rest dates for school terms, shift patterns or any non-standard week. A date marked “work” rings even on a Sunday; a date marked “holiday” stays quiet even on a Monday.</p>
+
+      <form id="calendar-form" class="panel stack" autocomplete="off">
+        <div class="form-grid">
+          <label class="field">
+            <span>Calendar name</span>
+            <input id="calendar-name" maxlength="40" placeholder="e.g. Work calendar 2026" required>
+          </label>
+          <label class="field">
+            <span>CSV file</span>
+            <input id="calendar-file" type="file" accept=".csv,text/csv" required>
+          </label>
+        </div>
+        <p class="hint">Format: date,type,note — for example 2026-01-01,holiday,New Year or 2026-01-04,work,Make-up workday. Use work/working for a working day and holiday/rest for a rest day. A header row is optional.</p>
+        <p class="form-error" id="calendar-error" role="alert"></p>
+        <div class="row"><button class="btn primary" type="submit" id="calendar-upload">Import calendar</button></div>
+      </form>
+
+      <div class="calendar-list" id="calendar-list"></div>
+      <div class="empty" id="calendar-empty" hidden>
+        <h3>No special-day calendars</h3>
+        <p>Import a CSV, then select it in an alarm’s Repeat section.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-history" hidden>
+      <div class="section-head">
+        <h2>Recent alarms</h2>
+        <button class="btn ghost tiny" id="refresh-history" type="button">Refresh</button>
+      </div>
+      <p class="section-lede">The last 30 rings, including who answered and why the sound stopped.</p>
+      <div class="table-wrap">
+        <table class="history-table">
+          <thead>
+            <tr><th>When</th><th>Alarm</th><th>Mode</th><th>Result</th><th>Answers</th></tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="history-empty" hidden>
+        <h3>Nothing here yet</h3>
+        <p>Once an alarm rings, its outcome shows up here.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-settings" hidden>
+      <div class="section-head"><h2>Settings</h2></div>
+      <div class="settings-grid">
+        <section class="panel">
+          <h3>Time &amp; links</h3>
+          <p class="muted small">Alarms use this timezone, so daylight saving changes are handled by the server.</p>
+          <form id="settings-form" class="stack">
+            <label class="field">
+              <span>Timezone</span>
+              <input id="setting-timezone" list="timezone-list" placeholder="Europe/Berlin" required>
+              <datalist id="timezone-list">
+                <option value="UTC"></option>
+                <option value="Europe/London"></option>
+                <option value="Europe/Berlin"></option>
+                <option value="Europe/Paris"></option>
+                <option value="America/New_York"></option>
+                <option value="America/Chicago"></option>
+                <option value="America/Denver"></option>
+                <option value="America/Los_Angeles"></option>
+                <option value="Asia/Kolkata"></option>
+                <option value="Asia/Shanghai"></option>
+                <option value="Asia/Tokyo"></option>
+                <option value="Australia/Sydney"></option>
+                <option value="Pacific/Auckland"></option>
+              </datalist>
+            </label>
+            <label class="field">
+              <span>Public base URL <em class="muted">(optional)</em></span>
+              <input id="setting-baseurl" placeholder="http://raspberrypi.local:8888">
+              <small class="hint">Used for the challenge shortlinks. Set this if the panel is reached through a hostname or reverse proxy. Empty means “use the address in the browser”.</small>
+            </label>
+            <label class="field">
+              <span>Challenge link lifetime after stop <em class="muted">(minutes)</em></span>
+              <input id="setting-link-retention" type="number" min="0" max="1440" value="30" required>
+              <small class="hint">Private challenge links and the last-result view stop working this many minutes after an alarm is stopped. 0 expires immediately.</small>
+            </label>
+            <p class="form-error" id="settings-error" role="alert"></p>
+            <div class="row"><button class="btn primary" type="submit">Save settings</button></div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <h3>Sound</h3>
+          <p class="muted small">unzzz synthesises its own two-tone WAV and plays uploaded music with the lightest compatible player.</p>
+          <form id="volume-form" class="stack" autocomplete="off">
+            <label class="field">
+              <span>Target alarm volume</span>
+              <input id="setting-target-volume" type="number" min="0" max="100" value="80" required>
+              <small class="hint">The server sets this system volume when an alarm starts and restores the previous volume when it stops.</small>
+            </label>
+            <div class="row"><button class="btn primary" type="submit">Save target volume</button></div>
+          </form>
+          <dl class="kv">
+            <dt>Current volume</dt><dd id="current-volume">—</dd>
+            <dt>Volume backend</dt><dd id="volume-backend">—</dd>
+          </dl>
+          <p class="muted small" id="volume-hint"></p>
+          <label class="field">
+            <span>Playback device</span>
+            <select id="setting-audio-device">
+              <option value="">System default</option>
+            </select>
+            <small class="hint" id="device-hint">Detected ALSA PCMs and PulseAudio sinks appear here.</small>
+          </label>
+          <div class="row">
+            <button class="btn ghost tiny" id="refresh-devices" type="button">Refresh devices</button>
+            <button class="btn tiny" id="audio-test" type="button">Play test beep</button>
+          </div>
+          <dl class="kv">
+            <dt>Player</dt><dd id="audio-backend">—</dd>
+            <dt>Status</dt><dd id="audio-status">—</dd>
+          </dl>
+          <p class="muted small" id="audio-hint"></p>
+        </section>
+
+        <section class="panel">
+          <h3>Admin password</h3>
+          <form id="password-form" class="stack">
+            <label class="field"><span>Current password</span><input id="pw-current" type="password" autocomplete="current-password" required></label>
+            <label class="field"><span>New password</span><input id="pw-new" type="password" autocomplete="new-password" minlength="8" required></label>
+            <label class="field"><span>Repeat new password</span><input id="pw-new2" type="password" autocomplete="new-password" minlength="8" required></label>
+            <p class="form-error" id="pw-error" role="alert"></p>
+            <div class="row"><button class="btn" type="submit">Change password</button></div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <h3>This server</h3>
+          <dl class="kv">
+            <dt>Version</dt><dd id="about-version">—</dd>
+            <dt>Data</dt><dd id="about-data">—</dd>
+            <dt>Python</dt><dd id="about-python">stdlib only</dd>
+          </dl>
+          <p class="muted small">No cloud, no accounts, no third-party packages. Keep it on your LAN; if you expose it to the internet, put HTTPS in front of it.</p>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    unzzz <span id="version">2.1.0</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
+  </footer>
+
+  <div id="ring-dock" class="ring-dock" role="alert" aria-live="assertive" hidden></div>
+</div>
+
+<dialog id="alarm-dialog" class="dialog">
+  <form id="alarm-form" class="dialog-form" novalidate>
+    <header class="dialog-head">
+      <h2 id="alarm-dialog-title">New alarm</h2>
+      <button class="icon-btn" type="button" data-close-dialog aria-label="Close">✕</button>
+    </header>
+    <div class="dialog-body">
+      <div class="form-grid">
+        <label class="field grow">
+          <span>Label</span>
+          <input id="alarm-label" maxlength="60" placeholder="Wake up" required>
+        </label>
+        <label class="field">
+          <span>Time</span>
+          <input id="alarm-time" type="time" required>
+        </label>
+      </div>
+
+      <fieldset class="field">
+        <legend>Repeat</legend>
+        <div class="day-picker" id="day-picker">
+          <button type="button" class="day" data-day="1">Mon</button>
+          <button type="button" class="day" data-day="2">Tue</button>
+          <button type="button" class="day" data-day="3">Wed</button>
+          <button type="button" class="day" data-day="4">Thu</button>
+          <button type="button" class="day" data-day="5">Fri</button>
+          <button type="button" class="day" data-day="6">Sat</button>
+          <button type="button" class="day" data-day="7">Sun</button>
+        </div>
+        <div class="once-row">
+          <span class="muted small">or once on</span>
+          <input id="alarm-once" type="date">
+          <button type="button" class="btn ghost tiny" id="clear-once">Clear</button>
+        </div>
+        <small class="hint">Pick days for a repeating alarm, or a single date. A challenge alarm needs at least one active person.</small>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>How does it stop?</legend>
+        <div class="mode-picker">
+          <label class="mode-card">
+            <input type="radio" name="mode" value="standard" checked>
+            <span class="mode-inner">
+              <strong>Standard</strong>
+              <small>Stop or snooze from this panel.</small>
+            </span>
+          </label>
+          <label class="mode-card">
+            <input type="radio" name="mode" value="challenge">
+            <span class="mode-inner">
+              <strong>Challenge</strong>
+              <small>Selected users answer a question. One user may snooze; several cannot.</small>
+            </span>
+          </label>
+        </div>
+        <div class="challenge-options" id="challenge-options" hidden>
+          <div class="field">
+            <span>Who must answer? <em class="muted" id="participant-count"></em></span>
+            <div class="user-picker" id="alarm-users"></div>
+            <small class="hint">Pick 1–6 users. Paused users are skipped when the alarm rings.</small>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Challenge type</span>
+              <select id="alarm-challenge-type">
+                <option value="math">Generated maths</option>
+                <option value="text">Text question</option>
+                <option value="choice">Multiple choice</option>
+                <option value="random_choice">Random multiple choice</option>
+                <option value="color">Colour match</option>
+                <option value="pattern">Pattern paint</option>
+              </select>
+              <small class="hint" id="challenge-type-hint">Arithmetic generated per person.</small>
+            </label>
+            <label class="field">
+              <span>Finish condition</span>
+              <select id="alarm-completion">
+                <option value="all">All selected users</option>
+                <option value="count">Fixed number</option>
+              </select>
+            </label>
+          </div>
+          <label class="field" id="target-row" hidden>
+            <span>Stop after how many correct answers?</span>
+            <input id="alarm-target" type="number" min="1" max="6" value="1">
+          </label>
+          <label class="field">
+            <span>Challenges per person</span>
+            <input id="alarm-challenge-count" type="number" min="1" max="10" value="1" required>
+            <small class="hint">Each selected person must pass this many challenges before the alarm can stop.</small>
+          </label>
+          <div class="form-grid">
+            <label class="field">
+              <span>Public shortlink</span>
+              <div class="input-with-button">
+                <input id="alarm-slug" maxlength="40" placeholder="alarmmorning">
+                <button class="btn ghost" type="button" id="random-slug">Random</button>
+              </div>
+              <small class="hint">3–40 characters: a-z, 0-9, - or _. Lowercase only.</small>
+            </label>
+            <label class="field">
+              <span>Preview</span>
+              <div class="slug-preview" id="slug-preview">—</div>
+              <small class="hint">A QR code appears on the alarm card after saving.</small>
+            </label>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Sound &amp; special days</legend>
+        <div class="form-grid">
+          <label class="field">
+            <span>Alarm music</span>
+            <select id="alarm-music">
+              <option value="">Built-in beep</option>
+            </select>
+          </label>
+          <label class="field" id="calendar-field">
+            <span>Special-days calendar</span>
+            <select id="alarm-calendar">
+              <option value="">None — use the week pattern</option>
+            </select>
+            <small class="hint">Overrides weekdays for dates in the calendar.</small>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Limits</legend>
+        <div class="form-grid three">
+          <label class="field">
+            <span>Snooze minutes</span>
+            <input id="alarm-snooze" type="number" min="1" max="30" value="9">
+          </label>
+          <label class="field">
+            <span>Max snoozes</span>
+            <input id="alarm-max-snooze" type="number" min="0" max="5" value="2">
+          </label>
+          <label class="field">
+            <span>Give up after (min)</span>
+            <input id="alarm-max-ring" type="number" min="1" max="120" value="15">
+          </label>
+        </div>
+        <small class="hint">Snooze is available for standard alarms and single-user challenges; multi-person challenges must be answered.</small>
+      </fieldset>
+
+      <label class="checkline">
+        <input id="alarm-enabled" type="checkbox" checked>
+        <span>Alarm enabled</span>
+      </label>
+
+      <p class="form-error" id="alarm-error" role="alert"></p>
+    </div>
+    <footer class="dialog-foot">
+      <button class="btn danger ghost" type="button" id="alarm-delete" hidden>Delete</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" type="button" data-close-dialog>Cancel</button>
+      <button class="btn primary" type="submit" id="alarm-save">Save alarm</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="link-dialog" class="dialog small">
+  <div class="dialog-form">
+    <header class="dialog-head">
+      <h2 id="link-title">Alarm shortlink</h2>
+      <button class="icon-btn" type="button" data-close-link aria-label="Close">✕</button>
+    </header>
+    <div class="dialog-body">
+      <p class="muted small">Share this link or show the QR code. Everyone can open it and pick their own name while the alarm rings.</p>
+      <div class="qr-frame"><img id="link-qr" alt="QR code for the alarm shortlink" width="240" height="240"></div>
+      <p class="link-url" id="link-url">—</p>
+      <div class="row">
+        <button class="btn primary" type="button" id="copy-link">Copy link</button>
+        <a class="btn ghost" id="open-link" href="#" target="_blank" rel="noopener">Open page</a>
+      </div>
+    </div>
+    <footer class="dialog-foot">
+      <span class="spacer"></span>
+      <button class="btn ghost" type="button" data-close-link>Close</button>
+    </footer>
+  </div>
+</dialog>
+
+<dialog id="confirm-dialog" class="dialog small">
+  <form method="dialog" class="dialog-form">
+    <div class="dialog-body">
+      <h2 id="confirm-title">Are you sure?</h2>
+      <p class="muted" id="confirm-text"></p>
+    </div>
+    <footer class="dialog-foot">
+      <span class="spacer"></span>
+      <button class="btn ghost" value="cancel">Cancel</button>
+      <button class="btn danger" id="confirm-ok" value="confirm">Confirm</button>
+    </footer>
+  </form>
+</dialog>
+
+<script src="/i18n.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+if [ "$1" = purge ] && command -v deb-systemd-helper >/dev/null 2>&1; then
+    deb-systemd-helper purge unzzz.service >/dev/null 2>&1 || true
+fi
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+# Deliberately keep /var/lib/unzzz on remove and purge. It contains the admin
+# password hash, users, alarms and music; deleting it silently would be unsafe.
+exit 0

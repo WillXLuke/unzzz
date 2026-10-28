@@ -1,0 +1,18 @@
+Package: unzzz
+Version: @VERSION@
+Section: misc
+Priority: optional
+Architecture: @ARCH@
+Depends: python3 (>= 3.9), adduser, alsa-utils
+Recommends: mpv
+Maintainer: unzzz maintainers <unzzz@localhost>
+Installed-Size: @SIZE@
+Description: lightweight alarm clock with shared wake-up challenges
+ unzzz is a small server-side alarm clock for a household, Raspberry Pi or
+ LAN server. Standard alarms stop from the panel. Challenge alarms send each
+ selected person a shortlink; the sound stops after everyone answers (or after
+ a configured number of correct answers). It includes a web control panel,
+ multiple challenge types, QR codes, uploaded music, special-day calendars and
+ a scheduler that survives restarts.
+ .
+ No cloud account or external Python package is required.
