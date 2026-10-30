@@ -988,6 +988,12 @@ class Store:
             > 0
         )
 
+    def increment_challenge_attempts(self, challenge_id: int) -> None:
+        self._exec(
+            "UPDATE challenges SET attempts = attempts + 1 WHERE id=?",
+            (challenge_id,),
+        )
+
     def wrong_challenge_answer(
         self,
         challenge_id: int,

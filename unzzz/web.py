@@ -1060,7 +1060,7 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             alarm = self.app.store.get_alarm(int(alarm_id))
             if (
-                alarm and alarm.get("slug") and alarm.get("enabled")
+                alarm and alarm.get("slug")
                 and alarm.get("mode") == "challenge"
                 and not self.app.engine.alarm_link_expired(alarm)
             ):
@@ -1071,7 +1071,7 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             alarm = self.app.store.get_alarm(int(alarm_id))
             if (
-                alarm and alarm.get("slug") and alarm.get("enabled")
+                alarm and alarm.get("slug")
                 and alarm.get("mode") == "challenge"
                 and not self.app.engine.alarm_link_expired(alarm)
             ):

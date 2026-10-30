@@ -861,6 +861,18 @@ class Engine:
                 if all_done:
                     self.store.finish_event(event["id"], "completed", reason)
             else:
+                if ctype == "dice":
+                    # Keep the target fixed for this participant. Only the
+                    # attempt counter changes; the fifth roll is forced by the
+                    # browser to this same target.
+                    self.store.increment_challenge_attempts(challenge["id"])
+                    challenge = self.store.get_challenge_by_token(token) or challenge
+                    event = self.store.get_event(event["id"]) or event
+                    return {
+                        "status": "wrong",
+                        "answer": self._answer_state(event, challenge),
+                        "message": "Not the target. Roll again — the target stays the same.",
+                    }
                 spec = self._next_question_for_challenge(event, challenge)
                 self.store.wrong_challenge_answer(
                     challenge["id"],

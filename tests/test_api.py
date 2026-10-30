@@ -1396,6 +1396,61 @@ class AllInOneLinkTests(ApiBase):
             self.assertEqual(exc.headers.get("Location"), "/challenge-link")
             exc.close()
 
+    def test_all_link_uses_recent_ring_even_after_alarm_disabled(self) -> None:
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        alarm = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]],
+            challenge_type="math", slug="recent-disabled",
+        )
+        event = self.fx.ring(alarm["id"])
+        self.fx.engine.stop_event(event["id"], "test finished")
+        self.fx.store.set_alarm_enabled(alarm["id"], False, None)
+        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
+
+        import urllib.error
+        import urllib.request
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        opener = urllib.request.build_opener(NoRedirect)
+        try:
+            opener.open(self.fx.client.base + "/all", timeout=5)
+            self.fail("expected a redirect")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 302)
+            self.assertEqual(exc.headers.get("Location"), "/recent-disabled")
+            exc.close()
+
+    def test_all_link_uses_latest_of_multiple_rings(self) -> None:
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        first = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]],
+            challenge_type="math", slug="older-ring",
+        )
+        second = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]],
+            challenge_type="color", slug="newer-ring",
+        )
+        self.fx.ring(first["id"])
+        self.fx.ring(second["id"])
+        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
+
+        import urllib.error
+        import urllib.request
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        opener = urllib.request.build_opener(NoRedirect)
+        try:
+            opener.open(self.fx.client.base + "/all", timeout=5)
+            self.fail("expected a redirect")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 302)
+            self.assertEqual(exc.headers.get("Location"), "/newer-ring")
+            exc.close()
+
     def test_all_link_expiry(self) -> None:
         self.fx.setup_admin()
         self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
@@ -1508,6 +1563,20 @@ class NewChallengeTypeApiTests(ApiBase):
         token = self._single_challenge("dice")
         challenge = self.fx.store.get_challenge_by_token(token)
         result = self.fx.answer(token, challenge["answer"])
+        self.assertTrue(result["all_done"])
+
+    def test_dice_target_stays_fixed_after_wrong_rolls(self) -> None:
+        token = self._single_challenge("dice")
+        challenge = self.fx.store.get_challenge_by_token(token)
+        target = int(challenge["answer"])
+        wrong = target % 6 + 1
+        for attempt in range(1, 5):
+            result = self.fx.answer(token, str(wrong))
+            self.assertEqual(result["status"], "wrong")
+            self.assertEqual(result["answer"]["attempts"], attempt)
+            challenge = self.fx.store.get_challenge_by_token(token)
+            self.assertEqual(int(challenge["answer"]), target)
+        result = self.fx.answer(token, str(target))
         self.assertTrue(result["all_done"])
 
     def test_six_by_six_pattern(self) -> None:
