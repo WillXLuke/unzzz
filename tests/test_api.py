@@ -1273,3 +1273,133 @@ class RandomChoiceTests(ApiBase):
         self.assertEqual(next_question["challenge"]["question"], shared[1]["question"])
         _status, other_question, _ = self.fx.client.request("GET", f"/api/s/{tokens[1]}")
         self.assertEqual(other_question["challenge"]["question"], shared[0]["question"])
+
+
+class PublicStandardLinkTests(ApiBase):
+    def test_standard_alarm_link_can_stop(self) -> None:
+        self.fx.setup_admin()
+        alarm = self.fx.create_alarm()
+        self.assertTrue(alarm["slug"])
+        event = self.fx.ring(alarm["id"])
+        status, data, _ = self.fx.client.request(
+            "GET", f"/api/alarm/{alarm['slug']}"
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["event"]["mode"], "standard")
+        before = time.time()
+        status, data, _ = self.fx.client.request(
+            "POST", f"/api/alarm/{alarm['slug']}/stop", {}
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["event"]["state"], "stopped")
+        alarm = self.fx.store.get_alarm(alarm["id"])
+        self.assertIsNone(alarm["link_expires_at"])
+
+        status, _data, _ = self.fx.client.request(
+            "POST", f"/api/alarms/{alarm['id']}/toggle", {"enabled": False}
+        )
+        self.assertEqual(status, 200)
+        alarm = self.fx.store.get_alarm(alarm["id"])
+        self.assertGreaterEqual(alarm["link_expires_at"], before + 6 * 3600 - 2)
+
+        self.fx.store.set_alarm_link_expiry(alarm["id"], time.time() - 1)
+        status, data, _ = self.fx.client.request(
+            "GET", f"/api/alarm/{alarm['slug']}"
+        )
+        self.assertEqual(status, 410)
+
+    def test_standard_alarm_link_can_snooze(self) -> None:
+        self.fx.setup_admin()
+        alarm = self.fx.create_alarm(max_snoozes=1, snooze_minutes=1)
+        self.fx.ring(alarm["id"])
+        status, data, _ = self.fx.client.request(
+            "POST", f"/api/alarm/{alarm['slug']}/snooze", {}
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["event"]["state"], "snoozed")
+
+    def test_link_can_be_modified_and_listed(self) -> None:
+        self.fx.setup_admin()
+        alarm = self.fx.create_alarm()
+        state = self.fx.state()
+        item = next(x for x in state["links"] if x["kind"] == "alarm")
+        self.assertEqual(item["slug"], alarm["slug"])
+        new_slug = "my-new-link"
+        expiry = time.time() + 7200
+        status, data, _ = self.fx.client.request(
+            "PUT", f"/api/links/alarm/{alarm['id']}",
+            {"slug": new_slug, "expires_at": expiry},
+        )
+        self.assertEqual(status, 200, data)
+        state = self.fx.state()
+        item = next(x for x in state["links"] if x["kind"] == "alarm")
+        self.assertEqual(item["slug"], new_slug)
+        self.assertAlmostEqual(item["expires_at"], expiry, delta=2)
+        status, _data, _ = self.fx.client.request("GET", f"/api/alarm/{alarm['slug']}")
+        self.assertEqual(status, 404)
+        status, _data, _ = self.fx.client.request("GET", f"/{new_slug}")
+        self.assertEqual(status, 200)
+
+    def test_deleted_alarm_link_remains_for_six_hours(self) -> None:
+        self.fx.setup_admin()
+        alarm = self.fx.create_alarm()
+        slug = alarm["slug"]
+        status, _data, _ = self.fx.client.request("DELETE", f"/api/alarms/{alarm['id']}")
+        self.assertEqual(status, 200)
+        status, body, _ = self.fx.client.request("GET", f"/{slug}")
+        self.assertEqual(status, 200)
+        self.assertIn("was removed", str(body))
+        retired = self.fx.store.get_retired_link(slug)
+        self.assertIsNotNone(retired)
+        self.assertGreater(retired["expires_at"], time.time() + 6 * 3600 - 5)
+        with self.fx.store.tx() as c:
+            c.execute(
+                "UPDATE retired_links SET expires_at=? WHERE slug=?",
+                (time.time() - 1, slug),
+            )
+        status, _body, _ = self.fx.client.request("GET", f"/{slug}")
+        self.assertEqual(status, 410)
+
+
+class AllInOneLinkTests(ApiBase):
+    def test_all_link_redirects_to_recent_challenge(self) -> None:
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        alarm = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]],
+            challenge_type="math", slug="challenge-link",
+        )
+        self.fx.ring(alarm["id"])
+        status, data, _ = self.fx.client.request(
+            "POST", "/api/links/all", {"slug": "all"}
+        )
+        self.assertEqual(status, 201, data)
+        self.assertEqual(data["link"]["kind"], "all")
+        self.assertEqual(data["link"]["slug"], "all")
+
+        status, body, headers = self.fx.client.request("GET", "/qr/all.svg")
+        self.assertEqual(status, 200)
+        self.assertIn("<svg", body)
+
+        import urllib.error
+        import urllib.request
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        opener = urllib.request.build_opener(NoRedirect)
+        try:
+            opener.open(self.fx.client.base + "/all", timeout=5)
+            self.fail("expected a redirect")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 302)
+            self.assertEqual(exc.headers.get("Location"), "/challenge-link")
+            exc.close()
+
+    def test_all_link_expiry(self) -> None:
+        self.fx.setup_admin()
+        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
+        self.fx.client.request(
+            "PUT", "/api/links/all", {"slug": "all", "expires_at": time.time() - 1}
+        )
+        status, _data, _ = self.fx.client.request("GET", "/all")
+        self.assertEqual(status, 410)

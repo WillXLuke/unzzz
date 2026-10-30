@@ -128,6 +128,29 @@
       return;
     }
 
+    if (event.mode === "standard") {
+      const snoozed = event.state === "snoozed";
+      $("#content").innerHTML = `
+        <div class="challenge-result">
+          <div class="result-icon${snoozed ? "" : " bad"}">${snoozed ? "☾" : "!"}</div>
+          <h2>${snoozed ? "Alarm snoozed" : "Alarm ringing"}</h2>
+          <p>${snoozed
+            ? `This alarm rings again at ${fmtHM(event.snooze_until)}.`
+            : "Stop it from this shortlink or snooze for a few more minutes."}</p>
+          <div class="row">
+            <button class="btn primary" type="button" data-public-action="stop">Stop alarm</button>
+            ${!snoozed && event.snooze_allowed ? '<button class="btn ghost" type="button" data-public-action="snooze">Snooze</button>' : ""}
+          </div>
+        </div>`;
+      setHeader(
+        data.alarm.label,
+        snoozed ? "Alarm snoozed." : "Alarm ringing.",
+        "Use this link to stop or snooze the alarm."
+      );
+      document.title = window.UNZZZ_I18N?.t("Wake up · unzzz") || "Wake up · unzzz";
+      return;
+    }
+
     if (event.state === "snoozed") {
       $("#content").innerHTML = `
         <div class="challenge-result">

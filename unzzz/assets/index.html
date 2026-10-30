@@ -56,7 +56,7 @@
       <button class="btn primary wide" type="submit">Create password</button>
     </form>
 
-    <p class="auth-foot">unzzz v<span id="auth-version">2.1.0</span> · keep this on your local network</p>
+    <p class="auth-foot">unzzz v<span id="auth-version">2.2.0</span> · keep this on your local network</p>
   </main>
 </div>
 
@@ -67,6 +67,7 @@
       <button class="tab" data-view="alarms" type="button">Alarms <span class="tab-count" id="tab-alarm-count"></span></button>
       <button class="tab" data-view="users" type="button">Users <span class="tab-count" id="tab-user-count"></span></button>
       <button class="tab" data-view="challenges" type="button">Challenges</button>
+      <button class="tab" data-view="links" type="button">Links</button>
       <button class="tab" data-view="music" type="button">Music</button>
       <button class="tab" data-view="special" type="button">Special days</button>
       <button class="tab" data-view="history" type="button">History</button>
@@ -211,6 +212,22 @@
       <div class="empty" id="questions-empty" hidden>
         <h3>No custom questions yet</h3>
         <p>Add a few above, then choose a text or multiple-choice challenge type.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-links" hidden>
+      <div class="section-head">
+        <h2>Links</h2>
+        <span class="muted" id="links-count"></span>
+      </div>
+      <p class="section-lede">Manage public links for enabled alarms. Expiration defaults to six hours after an alarm is disabled or removed; edit it per link.</p>
+      <div class="row" id="all-link-row">
+        <button class="btn primary" type="button" id="create-all-link">Create all-in-one link</button>
+      </div>
+      <ul class="links-list" id="links-list"></ul>
+      <div class="empty" id="links-empty" hidden>
+        <h3>No public links</h3>
+        <p>Enable an alarm or create the all-in-one shortcut.</p>
       </div>
     </section>
 
@@ -394,7 +411,7 @@
   </main>
 
   <footer class="foot">
-    unzzz <span id="version">2.1.0</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
+    unzzz <span id="version">2.2.0</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
   </footer>
 
   <div id="ring-dock" class="ring-dock" role="alert" aria-live="assertive" hidden></div>
@@ -583,6 +600,37 @@
       <button class="btn ghost" type="button" data-close-link>Close</button>
     </footer>
   </div>
+</dialog>
+
+<dialog id="link-edit-dialog" class="dialog small">
+  <form method="dialog" class="dialog-form" id="link-edit-form">
+    <header class="dialog-head">
+      <h2 id="link-edit-title">Edit link</h2>
+      <button class="icon-btn" type="button" data-close-link-edit aria-label="Close">✕</button>
+    </header>
+    <div class="dialog-body stack">
+      <input type="hidden" id="link-edit-kind">
+      <input type="hidden" id="link-edit-id">
+      <p class="muted small" id="link-edit-target"></p>
+      <label class="field">
+        <span>Shortlink</span>
+        <input id="link-edit-slug" maxlength="40" required>
+        <small class="hint">3–40 characters: a-z, 0-9, - or _. Lowercase only.</small>
+      </label>
+      <label class="field">
+        <span>Expiration <em class="muted">(optional)</em></span>
+        <input id="link-edit-expiry" type="datetime-local">
+        <small class="hint">Leave empty for no expiry. The default is six hours after an alarm is disabled or removed.</small>
+      </label>
+      <p class="form-error" id="link-edit-error" role="alert"></p>
+    </div>
+    <footer class="dialog-foot">
+      <button class="btn danger ghost" type="button" id="link-edit-delete" hidden>Delete</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" type="button" data-close-link-edit>Cancel</button>
+      <button class="btn primary" type="submit" id="link-edit-save">Save link</button>
+    </footer>
+  </form>
 </dialog>
 
 <dialog id="confirm-dialog" class="dialog small">

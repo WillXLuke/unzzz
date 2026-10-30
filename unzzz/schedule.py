@@ -435,20 +435,19 @@ def validate_alarm_payload(
 
     # ------------------------------------------------------------------ slug
     slug = None
-    if mode == "challenge":
-        raw_slug = str(data.get("slug") or "").strip().lower()
-        if raw_slug:
-            if not SLUG_RE.match(raw_slug):
-                return None, "Shortlink must be 3-40 chars: a-z, 0-9, - or _"
-            if raw_slug in RESERVED_SLUGS:
-                return None, "That shortlink is reserved"
-            slug = raw_slug
-        else:
-            slug = (auto_slug or random_slug()).lower()
-            if not SLUG_RE.match(slug):
-                slug = random_slug()
-            if slug in RESERVED_SLUGS:
-                slug = random_slug()
+    raw_slug = str(data.get("slug") or "").strip().lower()
+    if raw_slug:
+        if not SLUG_RE.match(raw_slug):
+            return None, "Shortlink must be 3-40 chars: a-z, 0-9, - or _"
+        if raw_slug in RESERVED_SLUGS:
+            return None, "That shortlink is reserved"
+        slug = raw_slug
+    else:
+        slug = (auto_slug or random_slug()).lower()
+        if not SLUG_RE.match(slug):
+            slug = random_slug()
+        if slug in RESERVED_SLUGS:
+            slug = random_slug()
 
     # --------------------------------------------------------------- next run
     next_fire = None

@@ -21,7 +21,8 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
 ## Features
 
 - **Standard alarms** — label, 24-hour time, weekdays or a one-time date,
-  enable/pause, configurable snooze, stop from the panel.
+  enable/pause, configurable snooze, stop from the panel **or their own
+  shortlink**. The link page has Stop and Snooze buttons.
 - **Challenge alarms** — choose **1–6 users per alarm** (the Users list itself
   is not limited to six). Each selected user gets a private shortlink and a
   challenge. The alarm stops when **everyone selected** answers, or when a
@@ -40,10 +41,17 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   schedule continues. Press **Undo skip** to cancel.
 - **Single vs. multi-person** — a challenge with one selected user can be
   snoozed; a challenge with several users cannot. Standard alarms always snooze.
-- **Shared alarm shortlink + QR** — each challenge alarm gets a public,
-  human-readable URL such as `http://192.168.5.19:8888/alarmmorning`. Open it,
-  pick your name, and answer. The panel renders a QR code for it. Slugs can be
-  random or user-defined.
+- **Shared alarm shortlink + QR** — every alarm gets a public, human-readable
+  URL such as `http://192.168.5.19:8888/alarmmorning`. Challenge links let a
+  person pick their name and answer; standard links expose Stop and Snooze.
+  The panel renders a QR code for each link.
+- **Links tab** — manage every enabled alarm link in one place, with **Modify**,
+  **QR** and **Open link** actions. Change the slug or expiration per link.
+  Expiration defaults to **six hours after the alarm is disabled or removed**;
+  a running/stopped recurring alarm keeps its link, and deleted-alarm links
+  stay valid for six hours before returning 410.
+- **All-in-one link** — create one shortcut that always opens the most recent
+  alarm challenge, so multiple enabled alarms only need one URL/QR.
 - **Music** — upload WAV/MP3/OGG/FLAC/M4A/AAC/Opus tracks and choose one per
   alarm. The built-in two-tone beep remains the default. Each track has
   **Test on server** / **Stop** buttons for playback through the server's
@@ -53,6 +61,8 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   an alarm rings, and restores the saved level when the sound stops.
 - **Link retirement** — private challenge links and the last-result view stop
   working a configurable number of minutes after an alarm stops (default 30).
+  The public alarm link itself follows the per-link expiration in the Links tab
+  (default six hours after disable/removal).
 - **Playback devices** — the Settings tab discovers ALSA PCMs and PulseAudio
   sinks and applies the selected device to aplay/mpv/paplay.
 - **Special days** — import named CSV calendars with each date marked `work`
@@ -144,10 +154,10 @@ Download or build the package matching the machine:
 
 ```bash
 # 64-bit PC / server
-sudo apt install ./unzzz_2.1.0_amd64.deb
+sudo apt install ./unzzz_2.2.0_amd64.deb
 
 # 64-bit Raspberry Pi OS
-sudo apt install ./unzzz_2.1.0_arm64.deb
+sudo apt install ./unzzz_2.2.0_arm64.deb
 ```
 
 The package:
@@ -164,8 +174,8 @@ from a checkout with:
 
 ```bash
 ./packaging/build-deb.sh
-# dist/unzzz_2.1.0_amd64.deb
-# dist/unzzz_2.1.0_arm64.deb
+# dist/unzzz_2.2.0_amd64.deb
+# dist/unzzz_2.2.0_arm64.deb
 ```
 
 ## Raspberry Pi install
@@ -232,13 +242,17 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
 - **Alarm editor** — label, time, repeat days or one-time date, standard vs
   challenge, 1–6 selected users, **challenge type** (maths, text, multiple
   choice, random multiple choice, colour match, pattern paint), **challenges
-  per person** (1–10), finish condition (all or fixed number), public shortlink,
-  music, special-days calendar, snooze limits, give-up limit.
+  per person** (1–10), finish condition (all or fixed number), public shortlink
+  for challenge alarms, music, special-days calendar, snooze limits, give-up
+  limit. Links are managed in the **Links** tab.
 - **Skip next** — one-shot suspension of the next occurrence, available on the
   alarm card. The history records a *skipped* event; the following occurrence
   is scheduled normally.
 - **Users** — no six-user cap; add, rename, pause, delete. Paused users are
   skipped when an alarm rings.
+- **Links** — enabled alarm links plus the all-in-one shortcut. Each item has
+  **Modify**, **QR** and **Open link**. Modify edits the slug and optional
+  expiration. The all-in-one shortcut opens the most recent alarm challenge.
 - **Challenges** — add/edit/delete text or multiple-choice questions. Choice
   questions need 2–6 unique options plus the correct option. Import a CSV with
   `question,option a,option b,option c,option d,correct answer`. Alarms using
@@ -308,24 +322,33 @@ participants see the same questions.
 
 ## Shared shortlinks and QR codes
 
-A challenge alarm has a unique slug (lowercase a–z, 0–9, `-`, `_`, 3–40 chars):
+Every alarm has a unique slug (lowercase a–z, 0–9, `-`, `_`, 3–40 chars):
 
 ```
 http://192.168.5.19:8888/alarmmorning
 ```
 
-- The editor can generate a random slug or you type one.
+- New alarms get a slug automatically; challenge alarms can set one in the
+  editor. Every link can be changed later in **Links**.
 - Save the alarm, then press **QR** on its card (or **Link & QR** in the ringing
   dock) to show the QR and copy the URL.
-- Opening the link while the alarm rings lists the selected users; tapping
-  “I am …” redirects to that person's question. Before/after the ring it shows
-  the next schedule or the last result.
+- A challenge link lists the selected users while ringing; tapping “I am …”
+  redirects to that person's question. A standard link shows **Stop alarm** and
+  **Snooze**.
 - Changing the slug invalidates previously shared links/printed QR codes.
 - Slugs are distinct from the private per-user `/s/<token>` links.
+- **Links** lists every enabled alarm link plus the all-in-one shortcut. Each
+  row has **Modify**, **QR** and **Open link**. Modify changes the slug and
+  expiration; an empty expiration means no expiry.
+- The default link expiration is **six hours after the alarm is disabled or
+  removed**. A custom future expiration is preserved across later changes.
+  Deleting an alarm retires its link after six hours (the link shows a removed
+  notice until then, then returns 410).
+- The all-in-one link redirects to the latest active challenge, otherwise the
+  most recent challenge link, otherwise the next enabled challenge alarm.
 - After an event stops, its private challenge links and the shared page's
   last-result view expire after **Challenge link lifetime after stop**
-  (Settings, default 30 minutes, `0` = immediately). The alarm's shared
-  `/<slug>` link remains available for its next ring.
+  (Settings, default 30 minutes, `0` = immediately).
 
 ## Multiple-choice question CSV
 

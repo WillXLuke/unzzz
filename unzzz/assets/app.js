@@ -156,7 +156,7 @@
   }
 
   function setView(view) {
-    const views = ["alarms", "users", "challenges", "music", "special", "history", "settings"];
+    const views = ["alarms", "users", "challenges", "links", "music", "special", "history", "settings"];
     if (!views.includes(view)) view = "alarms";
     S.view = view;
     localStorage.setItem("unzzz-view", view);
@@ -185,7 +185,7 @@
     $("#screen-auth").hidden = false;
     $("#login-form").hidden = mode !== "login";
     $("#setup-form").hidden = mode !== "setup";
-    $("#auth-version").textContent = "2.1.0";
+    $("#auth-version").textContent = "2.2.0";
     $("#login-error").textContent = "";
     $("#setup-error").textContent = "";
     setTimeout(() => {
@@ -275,6 +275,7 @@
     renderAlarms(data);
     renderUsers(data);
     renderQuestions(data);
+    renderLinks(data);
     renderMusic(data);
     renderCalendars(data);
     renderHistory(data);
@@ -1005,6 +1006,124 @@
     } catch (err) { toast(err.message, "error"); }
   }
 
+  // ------------------------------------------------------------------ links
+  function linkExpiryText(ts) {
+    return ts ? fmtDateTime(ts) : "No expiry";
+  }
+
+  function renderLinks(data) {
+    const links = data.links || [];
+    const sig = sigOf(links);
+    $("#links-count").textContent = `${links.length} link${links.length === 1 ? "" : "s"}`;
+    $("#links-empty").hidden = links.length > 0;
+    $("#all-link-row").hidden = links.some((item) => item.kind === "all");
+    if (S.sig.links === sig) return;
+    S.sig.links = sig;
+    $("#links-list").innerHTML = links.map((item) => `
+      <li class="link-item" data-link-kind="${esc(item.kind)}"${item.id != null ? ` data-link-id="${item.id}"` : ""}>
+        <div class="link-info">
+          <div class="link-title">${esc(item.label)} <span class="badge">${esc(item.mode === "all" ? "All-in-one" : item.mode)}</span></div>
+          <div class="link-url">${esc(item.url)}</div>
+          <div class="link-meta">Expires: ${esc(linkExpiryText(item.expires_at))}</div>
+        </div>
+        <div class="link-actions">
+          <button class="btn ghost tiny" type="button" data-link-action="edit">Modify</button>
+          <button class="btn ghost tiny" type="button" data-link-action="qr">QR</button>
+          <a class="btn tiny" href="${esc(item.url)}" target="_blank" rel="noopener">Open link</a>
+        </div>
+      </li>`).join("");
+  }
+
+  function localInput(ts) {
+    if (!ts) return "";
+    const d = new Date(ts * 1000);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function openLinkEditor(kind, id) {
+    const item = (S.data?.links || []).find(
+      (entry) => entry.kind === kind && (id == null || entry.id === id)
+    );
+    S.linkEdit = { kind, id: id ?? null, exists: Boolean(item) };
+    $("#link-edit-kind").value = kind;
+    $("#link-edit-id").value = id ?? "";
+    $("#link-edit-title").textContent = item ? `Edit ${item.label}` : "Create all-in-one link";
+    $("#link-edit-target").textContent = item ? item.url : "A shortcut that opens the most recent alarm challenge.";
+    $("#link-edit-slug").value = item?.slug || "all";
+    $("#link-edit-expiry").value = localInput(item?.expires_at);
+    $("#link-edit-delete").hidden = kind !== "all" || !item;
+    $("#link-edit-error").textContent = "";
+    const dialog = $("#link-edit-dialog");
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+  }
+
+  function closeLinkEditor() {
+    const dialog = $("#link-edit-dialog");
+    if (dialog.open) dialog.close();
+    else dialog.removeAttribute("open");
+  }
+
+  async function saveLinkEditor(event) {
+    event.preventDefault();
+    const error = $("#link-edit-error");
+    error.textContent = "";
+    const edit = S.linkEdit;
+    if (!edit) return;
+    const slug = $("#link-edit-slug").value.trim().toLowerCase();
+    const expiryValue = $("#link-edit-expiry").value;
+    const expires = expiryValue ? new Date(expiryValue).getTime() / 1000 : null;
+    try {
+      if (edit.kind === "all") {
+        if (!edit.exists) {
+          await api("/api/links/all", { method: "POST", body: { slug, expires_at: expires } });
+        } else {
+          await api("/api/links/all", { method: "PUT", body: { slug, expires_at: expires } });
+        }
+      } else {
+        await api(`/api/links/alarm/${edit.id}`, { method: "PUT", body: { slug, expires_at: expires } });
+      }
+      closeLinkEditor();
+      await refresh();
+      toast("Link saved");
+    } catch (err) {
+      error.textContent = err.message;
+    }
+  }
+
+  async function deleteAllLink() {
+    const edit = S.linkEdit;
+    if (!edit || edit.kind !== "all" || !edit.exists) return;
+    try {
+      await api("/api/links/all", { method: "DELETE", body: {} });
+      closeLinkEditor();
+      await refresh();
+      toast("All-in-one link deleted");
+    } catch (err) {
+      const error = $("#link-edit-error");
+      if (error) error.textContent = err.message;
+    }
+  }
+
+  async function linkAction(button) {
+    const row = button.closest(".link-item");
+    if (!row) return;
+    const kind = row.dataset.linkKind;
+    const id = row.dataset.linkId ? Number(row.dataset.linkId) : null;
+    const item = (S.data?.links || []).find(
+      (entry) => entry.kind === kind && (id == null || entry.id === id)
+    );
+    if (!item) return;
+    if (button.dataset.linkAction === "edit") openLinkEditor(kind, id);
+    else if (button.dataset.linkAction === "qr") openLinkDialog({
+      label: item.label,
+      slug: item.slug,
+      link: item.url,
+      qr_url: item.qr_url,
+    });
+  }
+
   // -------------------------------------------------------------- calendars
   function renderCalendars(data) {
     const calendars = data.calendars || [];
@@ -1573,6 +1692,14 @@
       }
     });
 
+    $("#links-list").addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-link-action]");
+      if (btn) linkAction(btn);
+    });
+    $("#create-all-link").addEventListener("click", () => openLinkEditor("all", null));
+    $("#link-edit-form").addEventListener("submit", saveLinkEditor);
+    $("#link-edit-delete").addEventListener("click", deleteAllLink);
+    $$("[data-close-link-edit]").forEach((btn) => btn.addEventListener("click", closeLinkEditor));
     $("#question-form").addEventListener("submit", saveQuestion);
     $("#question-import-form").addEventListener("submit", importQuestions);
     $("#question-cancel").addEventListener("click", resetQuestionForm);

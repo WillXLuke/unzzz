@@ -35,6 +35,7 @@ PRUNE_EVERY = 6 * 3600
 HISTORY_KEEP = 500
 LINK_RETENTION_DEFAULT = 30       # minutes after a stopped alarm
 LINK_RETENTION_MAX = 1440
+PUBLIC_LINK_TTL = 6 * 3600       # public link lifetime after stop/disable
 
 _rng = secrets.SystemRandom()
 
@@ -125,6 +126,26 @@ class Engine:
     def set_link_retention(self, minutes: int) -> None:
         self.link_retention_minutes = max(0, min(LINK_RETENTION_MAX, int(minutes)))
         self.store.set_setting("link_retention_minutes", str(self.link_retention_minutes))
+
+    def alarm_link_expired(self, alarm: dict, now: float | None = None) -> bool:
+        expires = alarm.get("link_expires_at")
+        if not expires:
+            return False
+        return (time.time() if now is None else now) >= float(expires)
+
+    def expire_alarm_link(self, alarm_id: int, now: float | None = None) -> None:
+        alarm = self.store.get_alarm(alarm_id)
+        if not alarm or not alarm.get("slug"):
+            return
+        current = alarm.get("link_expires_at")
+        now_ts = time.time() if now is None else now
+        if current and float(current) > now_ts:
+            # Respect a manually chosen future expiry.
+            return
+        self.store.set_alarm_link_expiry(alarm_id, now_ts + PUBLIC_LINK_TTL)
+
+    def clear_alarm_link_expiry(self, alarm_id: int) -> None:
+        self.store.set_alarm_link_expiry(alarm_id, None)
 
     def link_expired(self, event: dict, now: float | None = None) -> bool:
         """True once a finished event's challenge links have been retired."""
@@ -883,6 +904,7 @@ class Engine:
             "question_source": alarm.get("question_source", "auto"),
             "challenge_type": alarm.get("challenge_type", "math"),
             "skip_next": bool(alarm.get("skip_next")),
+            "link_expires_at": alarm.get("link_expires_at"),
             "music_id": alarm.get("music_id"),
             "music_name": music_name,
             "calendar_id": alarm.get("calendar_id"),

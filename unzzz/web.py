@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import mimetypes
@@ -34,6 +35,8 @@ from .question_csv import QuestionCsvError, parse_choice_csv
 from .schedule import (
     MAX_ALARM_USERS,
     QUESTION_KINDS,
+    RESERVED_SLUGS,
+    SLUG_RE,
     detect_system_timezone,
     mask_to_days,
     random_slug,
@@ -181,6 +184,49 @@ class App:
             "file_url": f"/api/music/{row['id']}/file",
         }
 
+    def all_link_slug(self) -> str:
+        return (self.store.get_setting("all_link_slug") or "").strip()
+
+    def all_link_expires_at(self) -> float | None:
+        raw = self.store.get_setting("all_link_expires_at") or ""
+        try:
+            return float(raw) if str(raw).strip() else None
+        except (TypeError, ValueError):
+            return None
+
+    def all_link_expired(self) -> bool:
+        expires = self.all_link_expires_at()
+        return bool(expires and time.time() >= expires)
+
+    def link_items(self, base: str) -> list[dict]:
+        items = []
+        for alarm in self.store.list_alarms():
+            if not alarm.get("enabled") or not alarm.get("slug"):
+                continue
+            items.append({
+                "kind": "alarm",
+                "id": alarm["id"],
+                "label": alarm["label"],
+                "mode": alarm["mode"],
+                "slug": alarm["slug"],
+                "url": f"{base}/{alarm['slug']}",
+                "qr_url": f"/qr/{alarm['slug']}.svg",
+                "expires_at": alarm.get("link_expires_at"),
+            })
+        slug = self.all_link_slug()
+        if slug:
+            items.append({
+                "kind": "all",
+                "id": None,
+                "label": "All-in-one",
+                "mode": "all",
+                "slug": slug,
+                "url": f"{base}/{slug}",
+                "qr_url": f"/qr/{slug}.svg",
+                "expires_at": self.all_link_expires_at(),
+            })
+        return items
+
     def build_state(self, handler: "Handler", base: str) -> dict:
         alarms = [self.decorate_alarm(a, base) for a in self.store.list_alarms()]
         users = [
@@ -249,6 +295,7 @@ class App:
             "audio": self.engine.audio.describe(),
             "volume": self.engine.volume.status(),
             "music_preview": self.engine.music_preview_status(),
+            "links": self.link_items(base),
             "settings": {
                 "timezone": self.engine.tz_name,
                 "base_url": configured_base,
@@ -324,18 +371,20 @@ class App:
                 return None, "Music file not found"
             data["music_id"] = music_id
 
-        if mode == "challenge":
-            raw_slug = str(data.get("slug") or "").strip().lower()
-            if raw_slug:
-                data["slug"] = raw_slug
-            else:
-                for _ in range(40):
-                    candidate = random_slug()
-                    if not self.store.slug_taken(candidate, alarm_id):
-                        data["slug"] = candidate
-                        break
+        raw_slug = str(data.get("slug") or "").strip().lower()
+        if raw_slug:
+            data["slug"] = raw_slug
         else:
-            data["slug"] = None
+            for _ in range(40):
+                candidate = random_slug()
+                retired = self.store.get_retired_link(candidate)
+                if (
+                    not self.store.slug_taken(candidate, alarm_id)
+                    and candidate != self.all_link_slug()
+                    and not (retired and float(retired["expires_at"]) > time.time())
+                ):
+                    data["slug"] = candidate
+                    break
 
         clean, error = validate_alarm_payload(
             data,
@@ -350,6 +399,12 @@ class App:
             return None, error
         if clean["slug"] and self.store.slug_taken(clean["slug"], alarm_id):
             return None, "That shortlink is already in use"
+        if clean["slug"] and clean["slug"] == self.all_link_slug():
+            return None, "That shortlink is already in use"
+        if clean["slug"]:
+            retired = self.store.get_retired_link(clean["slug"])
+            if retired and float(retired["expires_at"]) > time.time():
+                return None, "That shortlink is already in use"
         return clean, None
 
     # ------------------------------------------------------------------ mount
@@ -397,6 +452,12 @@ class Handler(BaseHTTPRequestHandler):
         ("GET", re.compile(r"^/qr/(?P<slug>[A-Za-z0-9][A-Za-z0-9_-]{2,39})\.svg$"), "qr_svg"),
         ("GET", re.compile(r"^/api/alarm/(?P<slug>[A-Za-z0-9][A-Za-z0-9_-]{2,39})$"), "public_alarm_state"),
         ("POST", re.compile(r"^/api/alarm/(?P<slug>[A-Za-z0-9][A-Za-z0-9_-]{2,39})/claim$"), "public_claim"),
+        ("POST", re.compile(r"^/api/alarm/(?P<slug>[A-Za-z0-9][A-Za-z0-9_-]{2,39})/stop$"), "public_stop"),
+        ("POST", re.compile(r"^/api/alarm/(?P<slug>[A-Za-z0-9][A-Za-z0-9_-]{2,39})/snooze$"), "public_snooze"),
+        ("PUT", re.compile(r"^/api/links/alarm/(?P<id>\d+)$"), "link_alarm_update"),
+        ("POST", re.compile(r"^/api/links/all$"), "link_all_create"),
+        ("PUT", re.compile(r"^/api/links/all$"), "link_all_update"),
+        ("DELETE", re.compile(r"^/api/links/all$"), "link_all_delete"),
         ("GET", re.compile(r"^/api/state$"), "state"),
         ("POST", re.compile(r"^/api/setup$"), "api_setup"),
         ("POST", re.compile(r"^/api/login$"), "login"),
@@ -730,6 +791,35 @@ class Handler(BaseHTTPRequestHandler):
         self._send_page("challenge.html")
 
     def alarm_page(self, match, body) -> None:
+        slug = match.group("slug")
+        if not self.app.store.get_alarm_by_slug(slug):
+            retired = self.app.store.get_retired_link(slug)
+            if retired:
+                if time.time() >= float(retired["expires_at"]):
+                    self._send(410, b"<h1>This link has expired</h1>", "text/html; charset=utf-8")
+                    return
+                when = time.strftime(
+                    "%Y-%m-%d %H:%M", time.localtime(float(retired["expires_at"]))
+                )
+                body = (
+                    "<!doctype html><meta charset=utf-8><title>Alarm removed · unzzz</title>"
+                    "<body style=\"font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem\">"
+                    f"<h1>{html.escape(retired['label'])} was removed</h1>"
+                    f"<p>This shortlink expires at {html.escape(when)}.</p>"
+                    "</body>"
+                ).encode("utf-8")
+                self._send(200, body, "text/html; charset=utf-8", cache="no-cache")
+                return
+        if not self.app.store.get_alarm_by_slug(slug) and slug == self.app.all_link_slug():
+            if self.app.all_link_expired():
+                self._send(410, b"<h1>This link has expired</h1>", "text/html; charset=utf-8")
+                return
+            target = self._all_link_target()
+            if not target:
+                self._send(404, b"<h1>No alarm link is available</h1>", "text/html; charset=utf-8")
+                return
+            self._send(302, b"", "text/plain; charset=utf-8", headers={"Location": f"/{target}"})
+            return
         self._send_page("alarm.html")
 
     def healthz(self, match, body) -> None:
@@ -743,11 +833,20 @@ class Handler(BaseHTTPRequestHandler):
             log.info(message)
 
     # ---------------------------------------------------------------- public
-    def public_alarm_state(self, match, body) -> None:
-        slug = match.group("slug")
+    def _public_alarm(self, slug: str) -> dict:
         alarm = self.app.store.get_alarm_by_slug(slug)
         if not alarm:
-            self._send_json({"ok": False, "error": "This alarm link was not found"}, 404)
+            raise ApiError(404, "This alarm link was not found")
+        if self.app.engine.alarm_link_expired(alarm):
+            raise ApiError(410, "This alarm link has expired")
+        return alarm
+
+    def public_alarm_state(self, match, body) -> None:
+        slug = match.group("slug")
+        try:
+            alarm = self._public_alarm(slug)
+        except ApiError as exc:
+            self._send_json({"ok": False, "error": exc.message}, exc.status)
             return
         active = self.app.store.active_event_for_alarm(alarm["id"])
         latest = self.app.store.latest_event_for_alarm(alarm["id"])
@@ -787,9 +886,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def public_claim(self, match, body) -> None:
         self._check_origin()
-        alarm = self.app.store.get_alarm_by_slug(match.group("slug"))
-        if not alarm:
-            raise ApiError(404, "This alarm link was not found")
+        alarm = self._public_alarm(match.group("slug"))
         event = self.app.store.active_event_for_alarm(alarm["id"])
         if not event:
             raise ApiError(409, "This alarm is not ringing right now")
@@ -808,12 +905,163 @@ class Handler(BaseHTTPRequestHandler):
             {"ok": True, "url": f"/s/{challenge['token']}", "user_name": challenge["user_name"]}
         )
 
+    def public_stop(self, match, body) -> None:
+        self._check_origin()
+        alarm = self._public_alarm(match.group("slug"))
+        event = self.app.store.active_event_for_alarm(alarm["id"])
+        if not event:
+            raise ApiError(409, "This alarm is not ringing right now")
+        if event["mode"] != "standard":
+            raise ApiError(409, "Challenge alarms must be answered")
+        updated = self.app.engine.stop_event(event["id"], "stopped from shortlink")
+        self._send_json({"ok": True, "event": self.app.engine.event_view(updated)})
+
+    def public_snooze(self, match, body) -> None:
+        self._check_origin()
+        alarm = self._public_alarm(match.group("slug"))
+        event = self.app.store.active_event_for_alarm(alarm["id"])
+        if not event:
+            raise ApiError(409, "This alarm is not ringing right now")
+        if event["mode"] != "standard":
+            raise ApiError(409, "Challenge alarms must be answered")
+        updated = self.app.engine.snooze_event(event["id"])
+        self._send_json({"ok": True, "event": self.app.engine.event_view(updated)})
+
+    # --------------------------------------------------------------- links
+    def _link_slug(self, raw: object, *, ignore_alarm: int | None = None) -> str:
+        slug = str(raw or "").strip().lower()
+        if not SLUG_RE.match(slug):
+            raise ApiError(400, "Shortlink must be 3-40 characters: a-z, 0-9, - or _")
+        if slug in RESERVED_SLUGS:
+            raise ApiError(400, "That shortlink is reserved")
+        if self.app.store.slug_taken(slug, ignore_alarm):
+            raise ApiError(409, "That shortlink is already in use")
+        retired = self.app.store.get_retired_link(slug)
+        if retired and float(retired["expires_at"]) > time.time():
+            raise ApiError(409, "That shortlink is already in use")
+        if slug == self.app.all_link_slug() and ignore_alarm is not None:
+            raise ApiError(409, "That shortlink is already in use")
+        return slug
+
+    def _link_expiry(self, raw: object) -> float | None:
+        if raw in (None, ""):
+            return None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise ApiError(400, "Expiration must be a timestamp or empty")
+        if value < 0:
+            raise ApiError(400, "Expiration must be a timestamp or empty")
+        return value
+
+    def _find_link(self, base: str, kind: str, alarm_id: int | None = None) -> dict | None:
+        for item in self.app.link_items(base):
+            if item["kind"] == kind and (alarm_id is None or item["id"] == alarm_id):
+                return item
+        return None
+
+    def link_alarm_update(self, match, body) -> None:
+        self._require_admin()
+        alarm_id = self._int_id(match)
+        alarm = self.app.store.get_alarm(alarm_id)
+        if not alarm:
+            raise ApiError(404, "Alarm not found")
+        slug = self._link_slug(body.get("slug"), ignore_alarm=alarm_id)
+        expires = self._link_expiry(body.get("expires_at"))
+        self.app.store.set_alarm_link(alarm_id, slug, expires)
+        updated = self.app.store.get_alarm(alarm_id)
+        self._send_json({"ok": True, "link": self._find_link(self._base(), "alarm", alarm_id),
+                         "alarm": self.app.engine.alarm_view(updated)})
+
+    def link_all_create(self, match, body) -> None:
+        self._require_admin()
+        if self.app.all_link_slug():
+            raise ApiError(409, "An all-in-one link already exists")
+        raw = str(body.get("slug") or "all").strip().lower()
+        try:
+            slug = self._link_slug(raw)
+        except ApiError:
+            slug = random_slug()
+            while True:
+                retired = self.app.store.get_retired_link(slug)
+                if (
+                    not self.app.store.slug_taken(slug)
+                    and slug != self.app.all_link_slug()
+                    and not (retired and float(retired["expires_at"]) > time.time())
+                ):
+                    break
+                slug = random_slug()
+        expires = self._link_expiry(body.get("expires_at"))
+        self.app.store.set_setting("all_link_slug", slug)
+        self.app.store.set_setting("all_link_expires_at", "" if expires is None else str(expires))
+        self._send_json({"ok": True, "link": self._find_link(self._base(), "all")}, 201)
+
+    def link_all_update(self, match, body) -> None:
+        self._require_admin()
+        if not self.app.all_link_slug():
+            raise ApiError(404, "All-in-one link not found")
+        slug = self._link_slug(body.get("slug"))
+        expires = self._link_expiry(body.get("expires_at"))
+        self.app.store.set_setting("all_link_slug", slug)
+        self.app.store.set_setting("all_link_expires_at", "" if expires is None else str(expires))
+        self._send_json({"ok": True, "link": self._find_link(self._base(), "all")})
+
+    def link_all_delete(self, match, body) -> None:
+        self._require_admin()
+        self.app.store.set_setting("all_link_slug", "")
+        self.app.store.set_setting("all_link_expires_at", "")
+        self._send_json({"ok": True})
+
+    def _all_link_target(self) -> str | None:
+        for event in self.app.store.active_events():
+            alarm_id = event.get("alarm_id")
+            if not alarm_id:
+                continue
+            alarm = self.app.store.get_alarm(int(alarm_id))
+            if (
+                alarm and alarm.get("slug") and alarm.get("enabled")
+                and alarm.get("mode") == "challenge"
+                and not self.app.engine.alarm_link_expired(alarm)
+            ):
+                return alarm["slug"]
+        for event in self.app.store.list_events(50):
+            alarm_id = event.get("alarm_id")
+            if not alarm_id:
+                continue
+            alarm = self.app.store.get_alarm(int(alarm_id))
+            if (
+                alarm and alarm.get("slug") and alarm.get("enabled")
+                and alarm.get("mode") == "challenge"
+                and not self.app.engine.alarm_link_expired(alarm)
+            ):
+                return alarm["slug"]
+        for alarm in self.app.store.list_alarms():
+            if (
+                alarm.get("enabled") and alarm.get("mode") == "challenge"
+                and alarm.get("slug") and not self.app.engine.alarm_link_expired(alarm)
+            ):
+                return alarm["slug"]
+        return None
+
     def qr_svg(self, match, body) -> None:
         slug = match.group("slug")
         alarm = self.app.store.get_alarm_by_slug(slug)
-        if not alarm:
-            raise ApiError(404, "This alarm link was not found")
-        url = f"{self._base()}/{alarm['slug']}"
+        if alarm:
+            if self.app.engine.alarm_link_expired(alarm):
+                raise ApiError(410, "This alarm link has expired")
+            url = f"{self._base()}/{alarm['slug']}"
+        else:
+            retired = self.app.store.get_retired_link(slug)
+            if retired:
+                if time.time() >= float(retired["expires_at"]):
+                    raise ApiError(410, "This alarm link has expired")
+                url = f"{self._base()}/{slug}"
+            elif slug == self.app.all_link_slug():
+                if self.app.all_link_expired():
+                    raise ApiError(410, "This link has expired")
+                url = f"{self._base()}/{slug}"
+            else:
+                raise ApiError(404, "This alarm link was not found")
         try:
             svg = make_qr_svg(url)
         except Exception:
@@ -1198,6 +1446,10 @@ class Handler(BaseHTTPRequestHandler):
         alarm = self.app.store.update_alarm(alarm_id, clean)
         if not clean["enabled"]:
             self.app.store.set_alarm_skip(alarm_id, False)
+            self.app.engine.expire_alarm_link(alarm_id)
+            alarm = self.app.store.get_alarm(alarm_id)
+        elif existing and not existing["enabled"]:
+            self.app.engine.clear_alarm_link_expiry(alarm_id)
             alarm = self.app.store.get_alarm(alarm_id)
         self._send_json({"ok": True, "alarm": self._alarm_view_response(alarm)})
 
@@ -1210,6 +1462,12 @@ class Handler(BaseHTTPRequestHandler):
                 409,
                 "This alarm is ringing or snoozed. Stop it before deleting the alarm.",
             )
+        alarm = self.app.store.get_alarm(alarm_id)
+        if alarm and alarm.get("slug"):
+            expires = time.time() + 6 * 3600
+            if alarm.get("link_expires_at"):
+                expires = max(expires, float(alarm["link_expires_at"]))
+            self.app.store.retire_link(alarm["slug"], alarm["label"], expires)
         if not self.app.store.delete_alarm(alarm_id):
             raise ApiError(404, "Alarm not found")
         self._send_json({"ok": True})
@@ -1245,6 +1503,9 @@ class Handler(BaseHTTPRequestHandler):
         self.app.store.set_alarm_enabled(alarm_id, enable, next_fire)
         if not enable:
             self.app.store.set_alarm_skip(alarm_id, False)
+            self.app.engine.expire_alarm_link(alarm_id)
+        else:
+            self.app.engine.clear_alarm_link_expiry(alarm_id)
         updated = self.app.store.get_alarm(alarm_id)
         self._send_json({"ok": True, "alarm": self._alarm_view_response(updated)})
 
