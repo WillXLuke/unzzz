@@ -1517,3 +1517,53 @@ class NewChallengeTypeApiTests(ApiBase):
         challenge = self.fx.store.get_challenge_by_token(token)
         result = self.fx.answer(token, json.loads(challenge["answer"]))
         self.assertTrue(result["all_done"])
+
+
+class AlarmEditRegressionTests(ApiBase):
+    def test_editing_enabled_alarm_returns_200(self) -> None:
+        self.fx.setup_admin()
+        alarm = self.fx.create_alarm(label="Before edit")
+        status, data, _ = self.fx.client.request(
+            "PUT", f"/api/alarms/{alarm['id']}", {"label": "After edit"}
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["alarm"]["label"], "After edit")
+        self.assertEqual(
+            self.fx.store.get_alarm(alarm["id"])["label"], "After edit"
+        )
+
+    def test_editing_full_challenge_payload(self) -> None:
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        alarm = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]], challenge_count=2,
+            challenge_type="math", slug="edit-plan",
+        )
+        body = {
+            "label": "Edited plan",
+            "time": alarm["time"],
+            "days": alarm["days"],
+            "once_date": None,
+            "enabled": True,
+            "mode": "challenge",
+            "challenge_count": 2,
+            "challenge_type": "color",
+            "challenge_plan": [{"type": "color"}, {"type": "pattern", "size": 6}],
+            "muted": True,
+            "snooze_minutes": alarm["snooze_minutes"],
+            "max_snoozes": alarm["max_snoozes"],
+            "max_ring_minutes": alarm["max_ring_minutes"],
+            "participants": [user["id"]],
+            "completion_mode": "all",
+            "target_count": 1,
+            "music_id": None,
+            "calendar_id": None,
+            "slug": "edit-plan",
+        }
+        status, data, _ = self.fx.client.request(
+            "PUT", f"/api/alarms/{alarm['id']}", body
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["alarm"]["label"], "Edited plan")
+        self.assertTrue(data["alarm"]["muted"])
+        self.assertEqual(data["alarm"]["challenge_plan"][1]["size"], 6)

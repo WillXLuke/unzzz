@@ -1479,7 +1479,8 @@ class Handler(BaseHTTPRequestHandler):
     def alarm_update(self, match, body) -> None:
         self._require_admin()
         alarm_id = self._int_id(match)
-        if not self.app.store.get_alarm(alarm_id):
+        existing = self.app.store.get_alarm(alarm_id)
+        if not existing:
             raise ApiError(404, "Alarm not found")
         clean, error = self.app.validate_alarm(body, alarm_id)
         if error:

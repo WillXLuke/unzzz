@@ -185,7 +185,7 @@
     $("#screen-auth").hidden = false;
     $("#login-form").hidden = mode !== "login";
     $("#setup-form").hidden = mode !== "setup";
-    $("#auth-version").textContent = "2.3.0";
+    $("#auth-version").textContent = "2.3.1";
     $("#login-error").textContent = "";
     $("#setup-error").textContent = "";
     setTimeout(() => {
