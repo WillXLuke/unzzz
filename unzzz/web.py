@@ -334,6 +334,12 @@ class App:
                 "completion_mode": existing.get("completion_mode", "all"),
                 "target_count": existing.get("target_count", 1),
                 "challenge_count": existing.get("challenge_count", 1),
+                "challenge_plan": (
+                    json.loads(existing["challenge_plan"])
+                    if existing.get("challenge_plan") else None
+                ),
+                "pattern_size": 3,
+                "muted": bool(existing.get("muted", 0)),
                 "question_source": existing.get("question_source", "auto"),
                 "challenge_type": existing.get("challenge_type", "math"),
                 "music_id": existing.get("music_id"),
@@ -833,6 +839,25 @@ class Handler(BaseHTTPRequestHandler):
             log.info(message)
 
     # ---------------------------------------------------------------- public
+    def _client_ip(self) -> str:
+        return str(self.client_address[0])
+
+    def _ip_pass_payload(self, event_id: int) -> dict | None:
+        row = self.app.store.get_ip_pass(event_id, self._client_ip())
+        if not row:
+            return None
+        challenges = self.app.store.list_challenges(event_id)
+        remaining = [
+            c["user_name"] for c in challenges
+            if not c["answered_at"]
+        ]
+        return {
+            "user_name": row["user_name"],
+            "passed_at": row["passed_at"],
+            "remaining": len(remaining),
+            "remaining_users": remaining,
+        }
+
     def _public_alarm(self, slug: str) -> dict:
         alarm = self.app.store.get_alarm_by_slug(slug)
         if not alarm:
@@ -857,6 +882,10 @@ class Handler(BaseHTTPRequestHandler):
         latest_view = None
         if latest and not active and not self.app.engine.link_expired(latest):
             latest_view = self.app.engine.event_view(latest, include_tokens=False)
+        ip_passed = (
+            self._ip_pass_payload(active["id"]) if active
+            else (self._ip_pass_payload(latest["id"]) if latest_view else None)
+        )
         self._send_json(
             {
                 "ok": True,
@@ -880,6 +909,7 @@ class Handler(BaseHTTPRequestHandler):
                 ],
                 "event": event_view,
                 "last_event": latest_view,
+                "ip_passed": ip_passed,
                 "state": active["state"] if active else "idle",
             }
         )
@@ -896,6 +926,17 @@ class Handler(BaseHTTPRequestHandler):
             user_id = int(body.get("user_id"))
         except (TypeError, ValueError):
             raise ApiError(400, "Choose who you are")
+        ip_pass = self.app.store.get_ip_pass(event["id"], self._client_ip())
+        if ip_pass:
+            remaining = sum(
+                1 for c in self.app.store.list_challenges(event["id"])
+                if not c["answered_at"]
+            )
+            raise ApiError(
+                409,
+                f"{ip_pass['user_name']}, you have already passed this challenge. "
+                f"{remaining} other person(s) still need to answer.",
+            )
         challenge = self.app.store.get_challenge_for_user(event["id"], user_id)
         if not challenge:
             raise ApiError(404, "That person is not part of this alarm")
@@ -1613,10 +1654,21 @@ class Handler(BaseHTTPRequestHandler):
         if data is None:
             self._send_json({"ok": False, "error": "This link is not valid"}, 404)
             return
+        ip_passed = self._ip_pass_payload(data["event_id"])
+        if ip_passed and ip_passed["user_name"] != data.get("user_name"):
+            data["ip_passed"] = ip_passed
         self._send_json({"ok": True, "challenge": data})
 
     def challenge_answer(self, match, body) -> None:
         self._check_origin()
         token = match.group("token")
         result = self.app.engine.answer(token, body.get("answer"))
+        answer = result.get("answer") or {}
+        if result.get("status") == "correct" and answer.get("answered"):
+            challenge = self.app.store.get_challenge_by_token(token)
+            if challenge:
+                self.app.store.record_ip_pass(
+                    challenge["event_id"], self._client_ip(),
+                    challenge["id"], challenge["user_name"],
+                )
         self._send_json({"ok": True, **result})

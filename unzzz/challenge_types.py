@@ -22,6 +22,9 @@ TYPE_LABELS = {
     "random_choice": "Random multiple choice",
     "color": "Colour match",
     "pattern": "Pattern paint",
+    "hold": "Button hold",
+    "typing": "Typing test",
+    "dice": "Roll dice",
 }
 COLORS = [
     {"key": "red", "name": "Red", "hex": "#ff5c5c"},
@@ -107,16 +110,66 @@ def _color(difficulty: str) -> dict:
     }
 
 
-def _pattern(difficulty: str) -> dict:
-    size = 3
-    count = {"easy": 3, "normal": 4, "hard": 5}.get(difficulty, 4)
+def _pattern(difficulty: str, size: int = 3) -> dict:
+    size = size if size in (3, 6, 9) else 3
+    count = {3: 4, 6: 8, 9: 12}.get(size, 4)
     target = sorted(_rng.sample(range(size * size), count))
     return {
         "challenge_type": "pattern",
         "answer_type": "pattern",
-        "question": "Paint the highlighted pattern.",
+        "question": f"Paint the highlighted {size}×{size} pattern.",
         "answer": json.dumps(target),
         "payload": {"size": size, "target": target},
+        "question_id": None,
+    }
+
+
+PHRASES = [
+    "the quiet morning train waits beside the open gate",
+    "seven blue birds landed softly on the garden wall",
+    "my alarm clock finally learned to keep a secret",
+    "warm bread and strong coffee are waiting downstairs",
+    "the sleepy cat refused to move from the sunny chair",
+    "a small green boat drifted past the old stone bridge",
+    "the kitchen radio played a song about rainy days",
+    "three golden leaves spun slowly across the empty road",
+    "the morning sky looked like a fresh sheet of paper",
+    "we packed apples bread and cheese for the long walk",
+]
+
+
+def _hold() -> dict:
+    seconds = 5
+    return {
+        "challenge_type": "hold",
+        "answer_type": "hold",
+        "question": f"Press and hold the button for {seconds} seconds.",
+        "answer": "held",
+        "payload": {"seconds": seconds},
+        "question_id": None,
+    }
+
+
+def _typing() -> dict:
+    phrase = _rng.choice(PHRASES)
+    return {
+        "challenge_type": "typing",
+        "answer_type": "text",
+        "question": "Type this phrase exactly:",
+        "answer": phrase,
+        "payload": {"phrase": phrase, "max_words": 15},
+        "question_id": None,
+    }
+
+
+def _dice() -> dict:
+    target = _rng.randint(1, 6)
+    return {
+        "challenge_type": "dice",
+        "answer_type": "dice",
+        "question": f"Roll a six-sided die and get {target}.",
+        "answer": str(target),
+        "payload": {"target": target, "max_tries": 5},
         "question_id": None,
     }
 
@@ -126,6 +179,7 @@ def generate_challenge(
     difficulty: str = "normal",
     pool: list[dict] | None = None,
     exclude_question_id: int | None = None,
+    pattern_size: int = 3,
 ) -> dict:
     """Create one question/answer spec.  Falls back to maths if a pool is empty."""
     pool = pool or []
@@ -144,7 +198,13 @@ def generate_challenge(
     if kind == "color":
         return _color(difficulty)
     if kind == "pattern":
-        return _pattern(difficulty)
+        return _pattern(difficulty, pattern_size)
+    if kind == "hold":
+        return _hold()
+    if kind == "typing":
+        return _typing()
+    if kind == "dice":
+        return _dice()
     return _math(difficulty)
 
 
@@ -175,6 +235,15 @@ def check_answer(challenge_type: str, expected: str, raw: Any) -> bool:
         return got is not None and got == want
     if kind == "color":
         return isinstance(raw, str) and raw.strip().lower() == expected.strip().lower()
+    if kind == "hold":
+        return isinstance(raw, str) and raw.strip().lower() == "held"
+    if kind == "typing":
+        return isinstance(raw, str) and raw.strip() == expected.strip()
+    if kind == "dice":
+        try:
+            return int(raw) == int(expected)
+        except (TypeError, ValueError):
+            return False
     if kind == "pattern":
         if not isinstance(raw, list):
             return False

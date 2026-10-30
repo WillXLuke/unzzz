@@ -52,7 +52,7 @@ class MigrationV5Tests(unittest.TestCase):
         store = Store(db)
         try:
             self.assertEqual(
-                store.conn.execute("PRAGMA user_version").fetchone()[0], 5
+                store.conn.execute("PRAGMA user_version").fetchone()[0], 6
             )
             row = store.get_alarm(alarm["id"])
             self.assertEqual(row["slug"], "alarm-1")

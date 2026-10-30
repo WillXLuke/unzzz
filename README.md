@@ -27,9 +27,12 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   is not limited to six). Each selected user gets a private shortlink and a
   challenge. The alarm stops when **everyone selected** answers, or when a
   fixed number of correct answers is reached.
-- **Six challenge types** — generated maths, text answer, multiple choice,
-  random multiple choice, colour match, and pattern paint. Set how many
-  challenges each person must pass per session.
+- **Nine challenge types** — generated maths, text answer, multiple choice,
+  random multiple choice, colour match, pattern paint (3×3, 6×6 or 9×9), a
+  five-second button hold, an exact typing test, and a five-try dice roll.
+- **Ordered challenge plans** — when a person has to pass more than one
+  challenge, choose a different type for each step and reorder them with
+  ↑ / ↓ arrows. Every selected person follows the same order.
 - **Five UI languages** — English, 中文, 日本語, Français and Deutsch, selected
   from the top-right language menu. The choice is remembered per browser;
   user-written questions, choices and alarm labels are shown as entered.
@@ -56,6 +59,12 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   alarm. The built-in two-tone beep remains the default. Each track has
   **Test on server** / **Stop** buttons for playback through the server's
   selected output device.
+- **Muted alarms** — a muted alarm still rings in the UI and keeps its
+  challenge/link controls, but plays no audio or music.
+- **One identity per IP per ring** — when an IP completes a person's full
+  challenge, the alarm remembers that identity for that ring. Reopening the
+  alarm link shows “already passed” and the people still remaining; claiming a
+  different identity from the same IP is rejected.
 - **Alarm volume** — Settings shows the current system volume and a target
   alarm volume. The server saves the current level, applies the target while
   an alarm rings, and restores the saved level when the sound stops.
@@ -154,10 +163,10 @@ Download or build the package matching the machine:
 
 ```bash
 # 64-bit PC / server
-sudo apt install ./unzzz_2.2.0_amd64.deb
+sudo apt install ./unzzz_2.3.0_amd64.deb
 
 # 64-bit Raspberry Pi OS
-sudo apt install ./unzzz_2.2.0_arm64.deb
+sudo apt install ./unzzz_2.3.0_arm64.deb
 ```
 
 The package:
@@ -174,8 +183,8 @@ from a checkout with:
 
 ```bash
 ./packaging/build-deb.sh
-# dist/unzzz_2.2.0_amd64.deb
-# dist/unzzz_2.2.0_arm64.deb
+# dist/unzzz_2.3.0_amd64.deb
+# dist/unzzz_2.3.0_arm64.deb
 ```
 
 ## Raspberry Pi install
@@ -241,10 +250,12 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
   special calendar, next occurrence, toggle, **QR**, **Ring now**, **Edit**.
 - **Alarm editor** — label, time, repeat days or one-time date, standard vs
   challenge, 1–6 selected users, **challenge type** (maths, text, multiple
-  choice, random multiple choice, colour match, pattern paint), **challenges
-  per person** (1–10), finish condition (all or fixed number), public shortlink
-  for challenge alarms, music, special-days calendar, snooze limits, give-up
-  limit. Links are managed in the **Links** tab.
+  choice, random multiple choice, colour match, pattern paint 3×3/6×6/9×9,
+  button hold, typing test, dice), **challenges per person** (1–10) and an
+  ordered plan when that count is above one, finish condition (all or fixed
+  number), public shortlink for challenge alarms, music, muted sound,
+  special-days calendar, snooze limits, give-up limit. Links are managed in
+  the **Links** tab.
 - **Skip next** — one-shot suspension of the next occurrence, available on the
   alarm card. The history records a *skipped* event; the following occurrence
   is scheduled normally.
@@ -263,6 +274,9 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
   or active ring uses it.
 - **Special days** — import named CSVs, see work/holiday counts and how many
   alarms use each calendar, and delete calendars (alarms fall back to weekdays).
+- **Identity memory** — after an IP completes a full challenge, the alarm link
+  shows that the identity has passed and lists who is still left. The same IP
+  cannot claim another identity for that ring.
 - **History** — last 30 rings: outcome, answer ratio, reason, music.
 - **Settings** — timezone, public base URL, challenge-link lifetime, target
   alarm volume, current system volume, playback device, sound test, admin
@@ -301,24 +315,29 @@ The built-in beep is always available as “Built-in beep”.
 
 ## Challenge types
 
-The alarm editor offers six types:
+The alarm editor offers nine types:
 
 | Type | What the phone shows | Source |
 |---|---|---|
 | **Generated maths** | an arithmetic question | generated per person |
 | **Text question** | a question + text input | Challenges pool, text kind |
 | **Multiple choice** | a question + 2–6 option buttons | Challenges pool, choice kind |
-| **Random multiple choice** | a random shared sequence from the choice pool | Challenges pool, choice kind |
+| **Random multiple choice** | a random shared question for that plan step | Challenges pool, choice kind |
 | **Colour match** | a target swatch + four named colours | generated per person |
-| **Pattern paint** | a highlighted 3×3 target + blank grid | generated per person |
+| **Pattern paint** | a highlighted 3×3, 6×6 or 9×9 target + blank grid | generated per person |
+| **Button hold** | hold an on-screen button for five seconds | generated per person |
+| **Typing test** | type a generated phrase exactly; copy/paste blocked | generated per person |
+| **Roll dice** | roll a die and match the target; the fifth try is guaranteed | generated per person |
 
 Wrong answers issue a fresh challenge (and, for generated types, a new
 pattern/colour pair). **Challenges per person** controls how many correct
 challenges each selected person must pass; the alarm only marks that person
-done after the last one. Math difficulty is fixed at normal and pattern size is
-fixed at 3×3. A choice question's correct answer must exactly match one of its
-options. Random-choice picks a shared sequence for the whole session, so all
-participants see the same questions.
+done after the last one. When the count is greater than one, the editor exposes
+an ordered plan: each step can be a different type, with 3×3, 6×6 or 9×9
+pattern grids, a five-second hold, a typing test, or dice. Math difficulty is
+fixed at normal. A choice question's correct answer must exactly match one of
+its options. Random-choice picks a shared question for that step, so all
+participants see the same question at the same position in the plan.
 
 ## Shared shortlinks and QR codes
 

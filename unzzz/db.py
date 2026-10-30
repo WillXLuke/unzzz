@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS alarms (
     completion_mode  TEXT NOT NULL DEFAULT 'all', -- all | count
     target_count     INTEGER NOT NULL DEFAULT 1,
     challenge_count  INTEGER NOT NULL DEFAULT 1, -- questions per participant
+    challenge_plan   TEXT,                      -- JSON ordered per-person plan
+    muted            INTEGER NOT NULL DEFAULT 0,
     link_expires_at  REAL,                      -- public shortlink expiry
     question_source  TEXT NOT NULL DEFAULT 'auto', -- legacy; see challenge_type
     challenge_type   TEXT NOT NULL DEFAULT 'math', -- math|text|choice|color|pattern
@@ -105,6 +107,8 @@ CREATE TABLE IF NOT EXISTS events (
     completion_mode  TEXT NOT NULL DEFAULT 'all',
     target_count     INTEGER NOT NULL DEFAULT 1,
     challenge_count  INTEGER NOT NULL DEFAULT 1,
+    challenge_plan   TEXT,
+    muted            INTEGER NOT NULL DEFAULT 0,
     question_source  TEXT NOT NULL DEFAULT 'auto', -- legacy
     challenge_type   TEXT NOT NULL DEFAULT 'math',
     shared_questions TEXT, -- JSON snapshot for random-choice sessions
@@ -131,6 +135,15 @@ CREATE TABLE IF NOT EXISTS challenges (
     created_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_challenges_event ON challenges(event_id);
+
+CREATE TABLE IF NOT EXISTS event_ip_passes (
+    event_id     INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    ip           TEXT NOT NULL,
+    challenge_id INTEGER,
+    user_name    TEXT NOT NULL,
+    passed_at    REAL NOT NULL,
+    PRIMARY KEY (event_id, ip)
+);
 
 CREATE TABLE IF NOT EXISTS retired_links (
     slug       TEXT PRIMARY KEY,
@@ -189,6 +202,8 @@ class Store:
             ("question_source", "TEXT NOT NULL DEFAULT 'auto'"),
             ("challenge_type", "TEXT NOT NULL DEFAULT 'math'"),
             ("challenge_count", "INTEGER NOT NULL DEFAULT 1"),
+            ("challenge_plan", "TEXT"),
+            ("muted", "INTEGER NOT NULL DEFAULT 0"),
             ("link_expires_at", "REAL"),
             ("skip_next", "INTEGER NOT NULL DEFAULT 0"),
             ("music_id", "INTEGER"),
@@ -207,6 +222,8 @@ class Store:
             ("question_source", "TEXT NOT NULL DEFAULT 'auto'"),
             ("challenge_type", "TEXT NOT NULL DEFAULT 'math'"),
             ("challenge_count", "INTEGER NOT NULL DEFAULT 1"),
+            ("challenge_plan", "TEXT"),
+            ("muted", "INTEGER NOT NULL DEFAULT 0"),
             ("shared_questions", "TEXT"),
             ("music_id", "INTEGER"),
             ("music_name", "TEXT"),
@@ -324,7 +341,7 @@ class Store:
                     "UPDATE alarms SET slug=? WHERE id=?", (candidate, alarm_id)
                 )
 
-        self.conn.execute("PRAGMA user_version=5")
+        self.conn.execute("PRAGMA user_version=6")
         self.conn.commit()
 
     def close(self) -> None:
@@ -615,8 +632,9 @@ class Store:
                    (label, time, days_mask, once_date, enabled, mode, difficulty,
                     snooze_minutes, max_snoozes, max_ring_minutes, next_fire,
                     created_at, slug, completion_mode, target_count, challenge_count,
-                    question_source, challenge_type, music_id, calendar_id)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    challenge_plan, muted, question_source, challenge_type,
+                    music_id, calendar_id)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     a["label"], a["time"], a["days_mask"], a["once_date"],
                     1 if a["enabled"] else 0, a["mode"], a["difficulty"],
@@ -624,6 +642,7 @@ class Store:
                     a.get("next_fire"), now, a.get("slug"),
                     a.get("completion_mode", "all"), a.get("target_count", 1),
                     a.get("challenge_count", 1),
+                    a.get("challenge_plan"), 1 if a.get("muted") else 0,
                     a.get("question_source", "auto"), a.get("challenge_type", "math"),
                     a.get("music_id"), a.get("calendar_id"),
                 ),
@@ -638,8 +657,9 @@ class Store:
                 """UPDATE alarms SET label=?, time=?, days_mask=?, once_date=?,
                    enabled=?, mode=?, difficulty=?, snooze_minutes=?, max_snoozes=?,
                    max_ring_minutes=?, next_fire=?, slug=?, completion_mode=?,
-                   target_count=?, challenge_count=?, question_source=?,
-                   challenge_type=?, music_id=?, calendar_id=? WHERE id=?""",
+                   target_count=?, challenge_count=?, challenge_plan=?, muted=?,
+                   question_source=?, challenge_type=?, music_id=?,
+                   calendar_id=? WHERE id=?""",
                 (
                     a["label"], a["time"], a["days_mask"], a["once_date"],
                     1 if a["enabled"] else 0, a["mode"], a["difficulty"],
@@ -647,6 +667,7 @@ class Store:
                     a.get("next_fire"), a.get("slug"),
                     a.get("completion_mode", "all"), a.get("target_count", 1),
                     a.get("challenge_count", 1),
+                    a.get("challenge_plan"), 1 if a.get("muted") else 0,
                     a.get("question_source", "auto"), a.get("challenge_type", "math"),
                     a.get("music_id"), a.get("calendar_id"), alarm_id,
                 ),
@@ -697,6 +718,24 @@ class Store:
             "SELECT * FROM retired_links WHERE slug = ? COLLATE NOCASE", (slug,)
         )
 
+    def record_ip_pass(
+        self, event_id: int, ip: str, challenge_id: int, user_name: str
+    ) -> None:
+        with self.tx() as c:
+            c.execute(
+                "INSERT INTO event_ip_passes(event_id, ip, challenge_id, user_name, passed_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(event_id, ip) DO UPDATE SET "
+                "challenge_id=excluded.challenge_id, user_name=excluded.user_name, "
+                "passed_at=excluded.passed_at",
+                (event_id, ip, challenge_id, user_name, time.time()),
+            )
+
+    def get_ip_pass(self, event_id: int, ip: str) -> dict | None:
+        return self._one(
+            "SELECT * FROM event_ip_passes WHERE event_id=? AND ip=?",
+            (event_id, ip),
+        )
+
     def delete_alarm(self, alarm_id: int) -> bool:
         return self._exec("DELETE FROM alarms WHERE id = ?", (alarm_id,)) > 0
 
@@ -727,6 +766,8 @@ class Store:
         completion_mode: str = "all",
         target_count: int = 1,
         challenge_count: int = 1,
+        challenge_plan: str | None = None,
+        muted: bool = False,
         question_source: str = "auto",
         challenge_type: str = "math",
         shared_questions: str | None = None,
@@ -739,14 +780,15 @@ class Store:
                    (alarm_id, alarm_label, mode, difficulty, state, fired_at, ends_at,
                     stop_reason, stopped_at, max_snoozes, snooze_minutes,
                     max_ring_minutes, manual, completion_mode, target_count,
-                    challenge_count, question_source, challenge_type,
-                    shared_questions, music_id, music_name)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    challenge_count, challenge_plan, muted, question_source,
+                    challenge_type, shared_questions, music_id, music_name)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     alarm_id, alarm_label, mode, difficulty, state, fired_at, ends_at,
                     stop_reason, stopped_at, max_snoozes, snooze_minutes,
                     max_ring_minutes, 1 if manual else 0, completion_mode,
-                    target_count, challenge_count, question_source, challenge_type,
+                    target_count, challenge_count, challenge_plan,
+                    1 if muted else 0, question_source, challenge_type,
                     shared_questions, music_id, music_name,
                 ),
             )

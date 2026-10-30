@@ -153,10 +153,55 @@
       const size = Number(payload.size) || 3;
       return `<div class="question-box" id="answer-area">
         <div class="paint-row">
-          <div class="paint-section"><span class="paint-label">Target</span><div class="paint-grid target">${patternGridHtml(size, payload.target, false)}</div></div>
-          <div class="paint-section"><span class="paint-label">Your pattern</span><div class="paint-grid" id="paint-grid">${patternGridHtml(size, [], true)}</div></div>
+          <div class="paint-section"><span class="paint-label">Target</span><div class="paint-grid target" style="grid-template-columns:repeat(${size},1fr)">${patternGridHtml(size, payload.target, false)}</div></div>
+          <div class="paint-section"><span class="paint-label">Your pattern</span><div class="paint-grid" id="paint-grid" style="grid-template-columns:repeat(${size},1fr)">${patternGridHtml(size, [], true)}</div></div>
         </div>
         <form id="answer-form" autocomplete="off"><button class="btn primary wide" type="submit" id="answer-btn">Answer</button></form>
+        ${feedback}
+      </div>`;
+    }
+    if (type === "hold") {
+      const seconds = Number(payload.seconds) || 5;
+      return `<div class="question-box" id="answer-area">
+        <div class="hold-wrap">
+          <div class="hold-ring" id="hold-ring"><span id="hold-count">${seconds}</span></div>
+          <button class="btn primary wide" type="button" id="hold-btn" data-hold-seconds="${seconds}">Press and hold</button>
+          <p class="muted small">Keep holding until the ring completes.</p>
+        </div>
+        <form id="answer-form" autocomplete="off">
+          <input id="answer" type="hidden" value="">
+          <button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button>
+        </form>
+        ${feedback}
+      </div>`;
+    }
+    if (type === "typing") {
+      const phrase = payload.phrase || data.question || "";
+      return `<div class="question-box" id="answer-area">
+        <div class="typing-phrase" id="typing-phrase" data-i18n-skip>${esc(phrase)}</div>
+        <p class="muted small">Copy and paste are disabled for this challenge.</p>
+        <form class="answer-form" id="answer-form" autocomplete="off">
+          <input id="answer" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="Type the phrase" placeholder="Type the phrase exactly" data-i18n-skip required>
+          <button class="btn primary" type="submit" id="answer-btn">Answer</button>
+        </form>
+        ${feedback}
+      </div>`;
+    }
+    if (type === "dice") {
+      const target = Number(payload.target) || 1;
+      const maxTries = Number(payload.max_tries) || 5;
+      const tries = Math.min(maxTries, (attempts || 0) + 1);
+      return `<div class="question-box" id="answer-area">
+        <div class="dice-wrap">
+          <div class="dice-target">Target: <strong>${target}</strong></div>
+          <div class="dice-face" id="dice-face">🎲</div>
+          <p class="muted small">Try ${tries} of ${maxTries} — the fifth try is guaranteed.</p>
+          <button class="btn primary wide" type="button" id="dice-roll">Roll the die</button>
+        </div>
+        <form id="answer-form" autocomplete="off">
+          <input id="answer" type="hidden" value="">
+          <button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button>
+        </form>
         ${feedback}
       </div>`;
     }
@@ -228,6 +273,8 @@
 
     // Ringing, not answered yet.
     resetSelection();
+    S.holdDone = false;
+    S.diceRolled = false;
     const question = data.question;
     const finishText = data.required > 1
       ? `Each person must pass ${data.required} challenges.`
@@ -235,7 +282,7 @@
         ? `The alarm stops after ${data.target_count} correct ${data.target_count === 1 ? "answer" : "answers"}.`
         : "Everyone selected has to answer.");
     $("#content").innerHTML = `
-      <div class="question" id="question"${(data.challenge_type === "text" || data.challenge_type === "choice") ? " data-i18n-skip" : ""}>${esc(question || "…")}</div>
+      <div class="question" id="question"${(data.challenge_type === "text" || data.challenge_type === "choice" || data.challenge_type === "typing") ? " data-i18n-skip" : ""}>${esc(question || "…")}</div>
       ${answerAreaHtml(data)}
       <div id="participants">${participantsHtml(data)}</div>`;
     setHeader(
@@ -248,9 +295,101 @@
     document.title = window.UNZZZ_I18N?.t("Wake up · unzzz") || "Wake up · unzzz";
     applyProgressWidths();
     $("#answer-form").addEventListener("submit", submitAnswer);
+    const holdButton = $("#hold-btn");
+    if (holdButton) bindHold(holdButton);
+    const diceButton = $("#dice-roll");
+    if (diceButton) bindDice(diceButton, data);
     const field = $("#answer");
     if (field) setTimeout(() => field.focus(), 40);
   }
+
+  function bindHold(button) {
+    const seconds = Number(button.dataset.holdSeconds) || 5;
+    let timer = null;
+    let remaining = seconds;
+    const count = $("#hold-count");
+    const ring = $("#hold-ring");
+    const stop = (cancelled = true) => {
+      if (timer) clearInterval(timer);
+      timer = null;
+      remaining = seconds;
+      if (count) count.textContent = String(seconds);
+      if (ring) ring.classList.remove("holding");
+      if (cancelled) {
+        button.textContent = "Press and hold";
+        button.disabled = false;
+      }
+    };
+    const start = (event) => {
+      if (event) event.preventDefault();
+      if (timer || S.holdDone) return;
+      remaining = seconds;
+      button.textContent = "Keep holding…";
+      if (ring) ring.classList.add("holding");
+      timer = setInterval(() => {
+        remaining -= 1;
+        if (count) count.textContent = String(Math.max(0, remaining));
+        if (remaining <= 0) {
+          clearInterval(timer);
+          timer = null;
+          S.holdDone = true;
+          button.textContent = "Passed";
+          button.disabled = true;
+          const form = $("#answer-form");
+          if (form) form.requestSubmit();
+        }
+      }, 1000);
+    };
+    button.addEventListener("pointerdown", start);
+    button.addEventListener("pointerup", () => { if (!S.holdDone) stop(); });
+    button.addEventListener("pointerleave", () => { if (!S.holdDone) stop(); });
+    button.addEventListener("pointercancel", () => { if (!S.holdDone) stop(); });
+    button.addEventListener("contextmenu", (event) => event.preventDefault());
+  }
+
+  function bindDice(button, data) {
+    button.addEventListener("click", () => {
+      if (S.diceRolled) return;
+      const payload = data.payload || {};
+      const target = Number(payload.target) || 1;
+      const maxTries = Number(payload.max_tries) || 5;
+      const attempt = Math.min(maxTries, (Number(data.attempts) || 0) + 1);
+      const roll = attempt >= maxTries ? target : 1 + Math.floor(Math.random() * 6);
+      S.diceRolled = true;
+      button.disabled = true;
+      const face = $("#dice-face");
+      if (face) {
+        face.textContent = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][roll - 1];
+        face.classList.add("rolling");
+      }
+      const input = $("#answer");
+      if (input) input.value = String(roll);
+      setTimeout(() => {
+        const form = $("#answer-form");
+        if (form) form.requestSubmit();
+      }, 650);
+    });
+  }
+
+  // Typing-test copy/paste protection. This is intentionally broad inside the
+  // answer area so the phrase cannot be copied into the input.
+  for (const name of ["copy", "cut", "contextmenu"]) {
+    document.addEventListener(name, (event) => {
+      if (event.target.closest && event.target.closest("#answer-area")) {
+        event.preventDefault();
+      }
+    });
+  }
+  document.addEventListener("paste", (event) => {
+    if (event.target.closest && event.target.closest("#answer-area")) {
+      event.preventDefault();
+      const feedback = $("#feedback");
+      if (feedback) {
+        feedback.textContent = "Paste is disabled for typing tests.";
+        feedback.className = "feedback bad";
+      }
+    }
+  });
 
   document.addEventListener("click", (event) => {
     const choice = event.target.closest("[data-choice]");
@@ -306,6 +445,8 @@
     const prev = S.data;
     S.data = body.challenge;
     S.offset = body.challenge.server_time - Date.now() / 1000;
+    const back = $("#back-link");
+    if (back) back.href = body.challenge.alarm_slug ? `/${body.challenge.alarm_slug}` : "/";
 
     // A background refresh must not wipe a half-typed answer. If the question
     // and state are unchanged, update only the participants block.
@@ -359,10 +500,25 @@
         feedback.className = "feedback bad";
         return;
       }
+    } else if (type === "hold") {
+      if (!S.holdDone) {
+        feedback.textContent = "Hold the button for the full time first.";
+        feedback.className = "feedback bad";
+        return;
+      }
+      value = "held";
+    } else if (type === "dice") {
+      const input = $("#answer");
+      value = input.value.trim();
+      if (!value) {
+        feedback.textContent = "Roll the die first.";
+        feedback.className = "feedback bad";
+        return;
+      }
     } else {
       const input = $("#answer");
       value = input.value.trim();
-      const isText = type === "text";
+      const isText = type === "text" || type === "typing";
       if (isText && !value) {
         feedback.textContent = "Enter an answer.";
         feedback.className = "feedback bad";
@@ -378,8 +534,10 @@
     }
     S.submitting = true;
     const button = $("#answer-btn");
-    button.disabled = true;
-    button.textContent = "Checking…";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Checking…";
+    }
     try {
       const res = await fetch(`/api/s/${encodeURIComponent(token)}/answer`, {
         method: "POST",

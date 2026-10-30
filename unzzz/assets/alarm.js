@@ -79,6 +79,23 @@
     applyProgress();
     const event = data.event;
 
+    if (data.ip_passed) {
+      const passed = data.ip_passed;
+      const remaining = passed.remaining_users || [];
+      $("#content").innerHTML = `
+        <div class="challenge-result">
+          <div class="result-icon">✓</div>
+          <h2>${esc(passed.user_name)}, you have already passed the challenge.</h2>
+          <p>${passed.remaining
+            ? `${passed.remaining} other ${passed.remaining === 1 ? "person still needs" : "people still need"} to answer.`
+            : "Everyone has finished."}</p>
+          ${remaining.length ? `<p class="muted small">Waiting for: ${remaining.map(esc).join(", ")}.</p>` : ""}
+        </div>`;
+      setHeader(data.alarm.label, "Already passed.", "This device has already completed its challenge for this ring.");
+      document.title = window.UNZZZ_I18N?.t("Already passed · unzzz") || "Already passed · unzzz";
+      return;
+    }
+
     if (data.state === "idle") {
       let next = "not scheduled";
       if (data.alarm.next_fire) {

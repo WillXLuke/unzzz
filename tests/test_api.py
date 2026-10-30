@@ -888,11 +888,12 @@ class ShortlinkTests(ApiBase):
         token1 = data["url"].rsplit("/", 1)[1]
         self.assertTrue(self.fx.answer(token1, self._answer_for(token1))["status"] == "correct")
 
-        status, data, _ = self.fx.client.request(
-            "POST", "/api/alarm/alarmmorning/claim", {"user_id": 2}
+        # The first identity's IP is now remembered; use the admin-side
+        # challenge token to finish the second identity in this integration test.
+        state = self.fx.state()["active_events"][0]
+        token2 = next(
+            c["token"] for c in state["challenges"] if c["user_id"] == 2
         )
-        self.assertEqual(status, 200)
-        token2 = data["url"].rsplit("/", 1)[1]
         result = self.fx.answer(token2, self._answer_for(token2))
         self.assertTrue(result["all_done"])
 
@@ -1403,3 +1404,116 @@ class AllInOneLinkTests(ApiBase):
         )
         status, _data, _ = self.fx.client.request("GET", "/all")
         self.assertEqual(status, 410)
+
+
+class OrderedChallengePlanTests(ApiBase):
+    def test_plan_runs_in_order_with_pattern_size(self) -> None:
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        self.fx.add_question("Pick blue", "Blue", "choice", ["Red", "Blue", "Green", "Yellow"])
+        alarm = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]], challenge_count=3,
+            challenge_type="color",
+            challenge_plan=[
+                {"type": "color"},
+                {"type": "pattern", "size": 6},
+                {"type": "choice"},
+            ],
+            slug="ordered-plan",
+        )
+        event = self.fx.ring(alarm["id"])
+        token = event["challenges"][0]["token"]
+        status, data, _ = self.fx.client.request("GET", f"/api/s/{token}")
+        self.assertEqual(data["challenge"]["challenge_type"], "color")
+        self.assertEqual(data["challenge"]["challenge_plan"][1]["size"], 6)
+        challenge = self.fx.store.get_challenge_by_token(token)
+        self.fx.answer(token, challenge["answer"])
+
+        _status, data, _ = self.fx.client.request("GET", f"/api/s/{token}")
+        self.assertEqual(data["challenge"]["challenge_type"], "pattern")
+        self.assertEqual(data["challenge"]["payload"]["size"], 6)
+        challenge = self.fx.store.get_challenge_by_token(token)
+        self.fx.answer(token, json.loads(challenge["answer"]))
+
+        _status, data, _ = self.fx.client.request("GET", f"/api/s/{token}")
+        self.assertEqual(data["challenge"]["challenge_type"], "choice")
+        challenge = self.fx.store.get_challenge_by_token(token)
+        result = self.fx.answer(token, challenge["answer"])
+        self.assertTrue(result["all_done"])
+
+
+class MutedAlarmTests(ApiBase):
+    def test_muted_alarm_rings_without_audio_session(self) -> None:
+        self.fx.setup_admin()
+        alarm = self.fx.create_alarm(muted=True)
+        event = self.fx.ring(alarm["id"])
+        self.assertTrue(event["muted"])
+        self.assertNotIn(event["id"], self.fx.engine.rings)
+        self.assertEqual(self.fx.state()["active_events"][0]["state"], "ringing")
+
+
+class IpIdentityMemoryTests(ApiBase):
+    def test_same_ip_cannot_claim_second_identity(self) -> None:
+        self.fx.setup_admin()
+        self.fx.add_user("Ada")
+        self.fx.add_user("Bob")
+        alarm = self.fx.create_alarm(
+            mode="challenge", participants=[1, 2],
+            challenge_type="math", slug="ip-memory",
+        )
+        event = self.fx.ring(alarm["id"])
+        status, data, _ = self.fx.client.request(
+            "POST", "/api/alarm/ip-memory/claim", {"user_id": 1}
+        )
+        self.assertEqual(status, 200)
+        token = data["url"].rsplit("/", 1)[-1]
+        challenge = self.fx.store.get_challenge_by_token(token)
+        self.fx.answer(token, challenge["answer"])
+
+        status, data, _ = self.fx.client.request(
+            "POST", "/api/alarm/ip-memory/claim", {"user_id": 2}
+        )
+        self.assertEqual(status, 409)
+        self.assertIn("already passed", data["error"])
+
+        _status, data, _ = self.fx.client.request("GET", "/api/alarm/ip-memory")
+        self.assertIsNotNone(data["ip_passed"])
+        self.assertEqual(data["ip_passed"]["user_name"], "Ada")
+        self.assertGreaterEqual(data["ip_passed"]["remaining"], 1)
+
+
+class NewChallengeTypeApiTests(ApiBase):
+    def _single_challenge(self, challenge_type: str, **extra):
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        alarm = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]],
+            challenge_type=challenge_type, slug=f"new-{challenge_type}", **extra,
+        )
+        event = self.fx.ring(alarm["id"])
+        return event["challenges"][0]["token"]
+
+    def test_hold_answer(self) -> None:
+        token = self._single_challenge("hold")
+        result = self.fx.answer(token, "held")
+        self.assertTrue(result["all_done"])
+
+    def test_typing_exact_answer(self) -> None:
+        token = self._single_challenge("typing")
+        challenge = self.fx.store.get_challenge_by_token(token)
+        result = self.fx.answer(token, challenge["answer"])
+        self.assertTrue(result["all_done"])
+
+    def test_dice_target(self) -> None:
+        token = self._single_challenge("dice")
+        challenge = self.fx.store.get_challenge_by_token(token)
+        result = self.fx.answer(token, challenge["answer"])
+        self.assertTrue(result["all_done"])
+
+    def test_six_by_six_pattern(self) -> None:
+        token = self._single_challenge(
+            "pattern", challenge_count=1, challenge_plan=[{"type": "pattern", "size": 6}],
+        )
+        challenge = self.fx.store.get_challenge_by_token(token)
+        result = self.fx.answer(token, json.loads(challenge["answer"]))
+        self.assertTrue(result["all_done"])

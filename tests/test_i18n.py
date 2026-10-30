@@ -75,3 +75,24 @@ class DataDirTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewUIAssetTests(unittest.TestCase):
+    def test_english_card_templates_present(self) -> None:
+        text = (ASSETS / "i18n.js").read_text()
+        for key in ("card.each", "card.count", "card.all", "card.music"):
+            self.assertIn(f'"{key}"', text)
+        self.assertIn('"card.each": " · {n} each"', text)
+
+    def test_ordered_plan_and_new_challenge_controls(self) -> None:
+        html = (ASSETS / "index.html").read_text()
+        for marker in (
+            "challenge-plan-list", "alarm-muted", "Pattern paint 6×6",
+            "Pattern paint 9×9", "Button hold", "Typing test", "Roll dice",
+        ):
+            self.assertIn(marker, html)
+        challenge = (ASSETS / "challenge.html").read_text()
+        self.assertIn('id="back-link"', challenge)
+        js = (ASSETS / "challenge.js").read_text()
+        for marker in ("bindHold", "bindDice", "typing-phrase", "requestSubmit"):
+            self.assertIn(marker, js)

@@ -91,3 +91,34 @@ class ChallengeTypeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewChallengeTypeTests(unittest.TestCase):
+    def test_pattern_sizes(self) -> None:
+        for size, cells in ((3, 16), (6, 36), (9, 81)):
+            spec = generate_challenge("pattern", "normal", pattern_size=size)
+            self.assertEqual(spec["payload"]["size"], size)
+            self.assertLessEqual(max(spec["payload"]["target"]), cells - 1)
+            self.assertTrue(check_answer("pattern", spec["answer"], spec["payload"]["target"]))
+
+    def test_hold(self) -> None:
+        spec = generate_challenge("hold")
+        self.assertEqual(spec["challenge_type"], "hold")
+        self.assertEqual(spec["payload"]["seconds"], 5)
+        self.assertTrue(check_answer("hold", spec["answer"], "held"))
+        self.assertFalse(check_answer("hold", spec["answer"], "hold"))
+
+    def test_typing_is_exact(self) -> None:
+        spec = generate_challenge("typing")
+        phrase = spec["payload"]["phrase"]
+        self.assertLess(len(phrase.split()), 15)
+        self.assertTrue(check_answer("typing", phrase, phrase))
+        self.assertFalse(check_answer("typing", phrase, phrase.upper()))
+        self.assertFalse(check_answer("typing", phrase, phrase + "!"))
+
+    def test_dice(self) -> None:
+        spec = generate_challenge("dice")
+        target = spec["payload"]["target"]
+        self.assertIn(target, range(1, 7))
+        self.assertTrue(check_answer("dice", spec["answer"], str(target)))
+        self.assertFalse(check_answer("dice", spec["answer"], str(target % 6 + 1)))

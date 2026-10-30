@@ -404,7 +404,8 @@ class Engine:
             target_count = 1
             challenge_type = "math"
             challenge_count = 1
-            shared_specs: list[dict] = []
+            plan: list[dict] = []
+            shared_specs: list[dict | None] = []
             if mode == "challenge":
                 completion_mode = alarm.get("completion_mode", "all")
                 if completion_mode == "count":
@@ -415,23 +416,48 @@ class Engine:
                     target_count = len(participants)
                 challenge_type = alarm.get("challenge_type", "math")
                 challenge_count = max(1, min(10, int(alarm.get("challenge_count", 1))))
+                try:
+                    raw_plan = json.loads(alarm.get("challenge_plan") or "[]")
+                except (TypeError, ValueError):
+                    raw_plan = []
+                if not isinstance(raw_plan, list) or len(raw_plan) != challenge_count:
+                    raw_plan = [challenge_type] * challenge_count
                 pool = self.store.list_questions()
-                pool_kind = "choice" if challenge_type == "random_choice" else challenge_type
-                if challenge_type in CUSTOM_TYPES and not any(
-                    (q.get("kind") or "text") == pool_kind for q in pool
-                ):
-                    challenge_type = "math"
-                    log.warning(
-                        "no %s questions left; using generated maths",
-                        pool_kind,
-                    )
-                if challenge_type == "random_choice":
-                    shared_specs = self._random_choice_specs(
-                        challenge_count, alarm["difficulty"], pool
-                    )
-                    if not shared_specs:
-                        challenge_type = "math"
-                        shared_specs = []
+                plan = []
+                for item in raw_plan:
+                    if isinstance(item, str):
+                        item = {"type": item}
+                    if not isinstance(item, dict):
+                        item = {"type": "math"}
+                    kind = str(item.get("type", "math"))
+                    pool_kind = "choice" if kind == "random_choice" else kind
+                    if kind in CUSTOM_TYPES and not any(
+                        (q.get("kind") or "text") == pool_kind for q in pool
+                    ):
+                        kind = "math"
+                        log.warning(
+                            "no %s questions left; using generated maths",
+                            pool_kind,
+                        )
+                    step = {"type": kind}
+                    if kind == "pattern":
+                        try:
+                            size = int(item.get("size", 3))
+                        except (TypeError, ValueError):
+                            size = 3
+                        step["size"] = size if size in (3, 6, 9) else 3
+                    plan.append(step)
+                challenge_type = plan[0]["type"] if plan else "math"
+                shared_specs = [None] * challenge_count
+                for index, step in enumerate(plan):
+                    if step.get("type") == "random_choice":
+                        choices = [
+                            q for q in pool if (q.get("kind") or "text") == "choice"
+                        ]
+                        if choices:
+                            shared_specs[index] = generate_challenge(
+                                "choice", alarm["difficulty"], choices
+                            )
 
             music_id = alarm.get("music_id")
             music_row = self.store.get_music(int(music_id)) if music_id else None
@@ -452,7 +478,12 @@ class Engine:
                 completion_mode=completion_mode,
                 target_count=target_count,
                 challenge_count=challenge_count,
-                question_source="custom" if challenge_type in CUSTOM_TYPES else "auto",
+                challenge_plan=json.dumps(plan, separators=(",", ":")) if plan else None,
+                muted=bool(alarm.get("muted")),
+                question_source=(
+                    "custom" if any(t in CUSTOM_TYPES for t in
+                                    [step.get("type") for step in plan]) else "auto"
+                ),
                 challenge_type=challenge_type,
                 shared_questions=json.dumps(shared_specs, separators=(",", ":"))
                 if shared_specs else None,
@@ -460,21 +491,18 @@ class Engine:
                 music_name=music_row["name"] if music_row else None,
             )
             if mode == "challenge":
-                if challenge_type == "random_choice" and shared_specs:
-                    specs = [shared_specs[0] for _ in participants]
-                    event_type = "random_choice"
-                else:
-                    specs = self._challenge_specs(
-                        len(participants), challenge_type, alarm["difficulty"]
+                specs = []
+                for _user in participants:
+                    first = shared_specs[0] if shared_specs else None
+                    specs.append(
+                        first if first is not None else self._spec_for_step(
+                            plan[0], alarm["difficulty"]
+                        )
                     )
-                    if specs:
-                        event_type = specs[0]["challenge_type"]
-                    else:
-                        event_type = "math"
+                event_type = challenge_type
                 if event_type != event.get("challenge_type"):
                     self.store.set_event_challenge_type(event["id"], event_type)
                     event["challenge_type"] = event_type
-                    challenge_type = event_type
                 for user, spec in zip(participants, specs):
                     self.store.add_challenge(
                         event_id=event["id"],
@@ -499,6 +527,69 @@ class Engine:
             event["target_count"], completion_mode, event.get("music_name"), manual,
         )
         return event
+
+    @staticmethod
+    def _event_plan(event: dict) -> list[dict]:
+        raw = event.get("challenge_plan")
+        if raw:
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                parsed = []
+            if isinstance(parsed, list) and parsed:
+                plan = []
+                for item in parsed:
+                    if isinstance(item, str):
+                        item = {"type": item}
+                    if not isinstance(item, dict):
+                        continue
+                    kind = str(item.get("type", "math"))
+                    step = {"type": kind}
+                    if kind == "pattern":
+                        try:
+                            step["size"] = int(item.get("size", 3))
+                        except (TypeError, ValueError):
+                            step["size"] = 3
+                        if step["size"] not in (3, 6, 9):
+                            step["size"] = 3
+                    plan.append(step)
+                if plan:
+                    return plan
+        count = max(1, int(event.get("challenge_count", 1)))
+        kind = event.get("challenge_type", "math")
+        return [{"type": kind} for _ in range(count)]
+
+    def _spec_for_step(
+        self, step: dict, difficulty: str, pool: list[dict] | None = None,
+        exclude_question_id: int | None = None,
+    ) -> dict:
+        kind = str(step.get("type", "math"))
+        if kind == "random_choice":
+            kind = "choice"
+        if kind in CUSTOM_TYPES:
+            pool_kind = "choice" if kind == "choice" else kind
+            if not any(
+                (q.get("kind") or "text") == pool_kind
+                for q in (pool if pool is not None else self.store.list_questions())
+            ):
+                kind = "math"
+        return generate_challenge(
+            kind,
+            difficulty,
+            pool if pool is not None else self.store.list_questions(),
+            exclude_question_id=exclude_question_id,
+            pattern_size=int(step.get("size", 3) or 3),
+        )
+
+    def _next_question_for_challenge(self, event: dict, challenge: dict) -> dict:
+        kind = challenge.get("challenge_type", "math")
+        payload = payload_object(challenge.get("payload"))
+        step = {"type": kind, "size": payload.get("size", 3)}
+        return self._spec_for_step(
+            step,
+            event.get("difficulty", "normal"),
+            exclude_question_id=challenge.get("question_id"),
+        )
 
     def _random_choice_specs(
         self, count: int, difficulty: str, pool: list[dict] | None = None
@@ -556,6 +647,8 @@ class Engine:
                 return
             event = self.store.get_event(event_id)
             if not event or event["state"] != "ringing":
+                return
+            if event.get("muted"):
                 return
             session = RingSession(event_id)
             self.rings[event_id] = session
@@ -703,6 +796,17 @@ class Engine:
         elif ctype == "pattern":
             if not isinstance(raw_answer, list) or not raw_answer:
                 raise EngineError("Paint at least one cell", 400)
+        elif ctype == "hold":
+            if raw_answer not in ("held", "Held"):
+                raise EngineError("Hold the button first", 400)
+        elif ctype == "typing":
+            if not isinstance(raw_answer, str) or not raw_answer.strip():
+                raise EngineError("Type the phrase", 400)
+        elif ctype == "dice":
+            try:
+                int(raw_answer)
+            except (TypeError, ValueError):
+                raise EngineError("Roll the dice first", 400)
         else:
             raise EngineError("Unknown challenge type", 400)
 
@@ -757,7 +861,7 @@ class Engine:
                 if all_done:
                     self.store.finish_event(event["id"], "completed", reason)
             else:
-                spec = self._next_question(event, challenge.get("question_id"))
+                spec = self._next_question_for_challenge(event, challenge)
                 self.store.wrong_challenge_answer(
                     challenge["id"],
                     spec["question"],
@@ -795,21 +899,24 @@ class Engine:
         }
 
     def _next_session_question(self, event: dict, challenge: dict, solved: int) -> dict:
-        if event.get("challenge_type") == "random_choice":
-            try:
-                shared = json.loads(event.get("shared_questions") or "[]")
-            except (TypeError, ValueError):
-                shared = []
-            if isinstance(shared, list) and shared:
-                index = min(max(0, solved), len(shared) - 1)
-                spec = shared[index]
-                if isinstance(spec, dict) and "question" in spec:
-                    spec.setdefault("answer_type", "choice")
-                    spec.setdefault("challenge_type", "choice")
-                    spec.setdefault("payload", {"options": []})
-                    spec.setdefault("question_id", None)
-                    return spec
-        return self._next_question(event, challenge.get("question_id"))
+        plan = self._event_plan(event)
+        if 0 <= solved < len(plan):
+            step = plan[solved]
+            if step.get("type") == "random_choice":
+                try:
+                    shared = json.loads(event.get("shared_questions") or "[]")
+                except (TypeError, ValueError):
+                    shared = []
+                if isinstance(shared, list) and solved < len(shared):
+                    spec = shared[solved]
+                    if isinstance(spec, dict) and "question" in spec:
+                        spec.setdefault("answer_type", "choice")
+                        spec.setdefault("challenge_type", "choice")
+                        spec.setdefault("payload", {"options": []})
+                        spec.setdefault("question_id", None)
+                        return spec
+            return self._spec_for_step(step, event.get("difficulty", "normal"))
+        return self._next_question_for_challenge(event, challenge)
 
     def _answer_state(self, event: dict, challenge: dict) -> dict:
         participants = self.store.list_challenges(event["id"])
@@ -828,6 +935,11 @@ class Engine:
             "required": max(1, int(event.get("challenge_count", 1))),
             "answer_type": challenge.get("answer_type", "number"),
             "challenge_type": challenge.get("challenge_type", "math"),
+            "challenge_plan": self._event_plan(event),
+            "alarm_slug": (
+                self.store.get_alarm(int(event["alarm_id"]))["slug"]
+                if event.get("alarm_id") else None
+            ),
             "payload": payload_object(challenge.get("payload")),
             "completion_mode": event.get("completion_mode", "all"),
             "target_count": event.get("target_count", 1),
@@ -901,6 +1013,11 @@ class Engine:
             "completion_mode": alarm.get("completion_mode", "all"),
             "target_count": target,
             "challenge_count": alarm.get("challenge_count", 1),
+            "challenge_plan": (
+                json.loads(alarm["challenge_plan"])
+                if alarm.get("challenge_plan") else None
+            ),
+            "muted": bool(alarm.get("muted", 0)),
             "question_source": alarm.get("question_source", "auto"),
             "challenge_type": alarm.get("challenge_type", "math"),
             "skip_next": bool(alarm.get("skip_next")),
@@ -947,6 +1064,8 @@ class Engine:
             "completion_mode": event.get("completion_mode", "all"),
             "target_count": event.get("target_count", 1),
             "challenge_count": event.get("challenge_count", 1),
+            "challenge_plan": self._event_plan(event),
+            "muted": bool(event.get("muted", 0)),
             "question_source": event.get("question_source", "auto"),
             "challenge_type": event.get("challenge_type", "math"),
             "music_id": event.get("music_id"),

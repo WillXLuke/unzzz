@@ -56,7 +56,7 @@
       <button class="btn primary wide" type="submit">Create password</button>
     </form>
 
-    <p class="auth-foot">unzzz v<span id="auth-version">2.2.0</span> · keep this on your local network</p>
+    <p class="auth-foot">unzzz v<span id="auth-version">2.3.0</span> · keep this on your local network</p>
   </main>
 </div>
 
@@ -411,7 +411,7 @@
   </main>
 
   <footer class="foot">
-    unzzz <span id="version">2.2.0</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
+    unzzz <span id="version">2.3.0</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
   </footer>
 
   <div id="ring-dock" class="ring-dock" role="alert" aria-live="assertive" hidden></div>
@@ -479,7 +479,7 @@
             <small class="hint">Pick 1–6 users. Paused users are skipped when the alarm rings.</small>
           </div>
           <div class="form-grid">
-            <label class="field">
+            <label class="field" id="single-challenge-type-field">
               <span>Challenge type</span>
               <select id="alarm-challenge-type">
                 <option value="math">Generated maths</option>
@@ -487,7 +487,12 @@
                 <option value="choice">Multiple choice</option>
                 <option value="random_choice">Random multiple choice</option>
                 <option value="color">Colour match</option>
-                <option value="pattern">Pattern paint</option>
+                <option value="pattern3">Pattern paint 3×3</option>
+                <option value="pattern6">Pattern paint 6×6</option>
+                <option value="pattern9">Pattern paint 9×9</option>
+                <option value="hold">Button hold</option>
+                <option value="typing">Typing test</option>
+                <option value="dice">Roll dice</option>
               </select>
               <small class="hint" id="challenge-type-hint">Arithmetic generated per person.</small>
             </label>
@@ -508,6 +513,11 @@
             <input id="alarm-challenge-count" type="number" min="1" max="10" value="1" required>
             <small class="hint">Each selected person must pass this many challenges before the alarm can stop.</small>
           </label>
+          <div class="field" id="challenge-plan-wrap" hidden>
+            <span>Challenge order</span>
+            <div class="challenge-plan-list" id="challenge-plan-list"></div>
+            <small class="hint">Each selected person passes these challenges from top to bottom. Use ↑ / ↓ to reorder.</small>
+          </div>
           <div class="form-grid">
             <label class="field">
               <span>Public shortlink</span>
@@ -543,6 +553,11 @@
             <small class="hint">Overrides weekdays for dates in the calendar.</small>
           </label>
         </div>
+        <label class="checkline">
+          <input id="alarm-muted" type="checkbox">
+          <span>Muted alarm — no sound</span>
+        </label>
+        <small class="hint">The alarm still rings and shows controls, but plays no audio or music.</small>
       </fieldset>
 
       <fieldset class="field">

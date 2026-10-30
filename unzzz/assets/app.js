@@ -185,7 +185,7 @@
     $("#screen-auth").hidden = false;
     $("#login-form").hidden = mode !== "login";
     $("#setup-form").hidden = mode !== "setup";
-    $("#auth-version").textContent = "2.2.0";
+    $("#auth-version").textContent = "2.3.0";
     $("#login-error").textContent = "";
     $("#setup-error").textContent = "";
     setTimeout(() => {
@@ -304,6 +304,76 @@
     pattern: "Pattern",
   };
 
+  const PLAN_OPTIONS = [
+    ["math", "Generated maths"],
+    ["text", "Text question"],
+    ["choice", "Multiple choice"],
+    ["random_choice", "Random multiple choice"],
+    ["color", "Colour match"],
+    ["pattern3", "Pattern paint 3×3"],
+    ["pattern6", "Pattern paint 6×6"],
+    ["pattern9", "Pattern paint 9×9"],
+    ["hold", "Button hold"],
+    ["typing", "Typing test"],
+    ["dice", "Roll dice"],
+  ];
+
+  function planValueToDescriptor(value) {
+    const match = /^pattern([369])$/.exec(value || "");
+    if (match) return { type: "pattern", size: Number(match[1]) };
+    return { type: value || "math" };
+  }
+
+  function descriptorToValue(item) {
+    if (!item) return "math";
+    if (item.type === "pattern") return `pattern${item.size || 3}`;
+    return item.type || "math";
+  }
+
+  function planOptionsHtml(selected) {
+    return PLAN_OPTIONS.map(([value, label]) =>
+      `<option value="${value}"${value === selected ? " selected" : ""}>${label}</option>`
+    ).join("");
+  }
+
+  function ensureChallengePlan(count) {
+    if (!Array.isArray(S.challengePlan)) S.challengePlan = [];
+    const fallback = S.challengePlan[S.challengePlan.length - 1] || { type: "math" };
+    while (S.challengePlan.length < count) {
+      S.challengePlan.push({ ...fallback });
+    }
+    if (S.challengePlan.length > count) S.challengePlan.length = count;
+  }
+
+  function renderChallengePlan(count) {
+    const host = $("#challenge-plan-list");
+    if (!host) return;
+    ensureChallengePlan(count);
+    host.innerHTML = S.challengePlan.map((item, index) => `
+      <div class="plan-step" data-plan-index="${index}">
+        <span class="plan-order">${index + 1}</span>
+        <select data-plan-type aria-label="Challenge ${index + 1}">${planOptionsHtml(descriptorToValue(item))}</select>
+        <button class="btn ghost tiny" type="button" data-plan-move="up" data-plan-index="${index}"${index === 0 ? " disabled" : ""} aria-label="Move up">↑</button>
+        <button class="btn ghost tiny" type="button" data-plan-move="down" data-plan-index="${index}"${index === count - 1 ? " disabled" : ""} aria-label="Move down">↓</button>
+      </div>`).join("");
+  }
+
+  function currentChallengePlan() {
+    const count = Math.max(1, Math.min(10, Number($("#alarm-challenge-count").value) || 1));
+    if (count <= 1) {
+      return [planValueToDescriptor($("#alarm-challenge-type").value)];
+    }
+    ensureChallengePlan(count);
+    $("#challenge-plan-list")?.querySelectorAll("[data-plan-index]").forEach((row) => {
+      const index = Number(row.dataset.planIndex);
+      const select = row.querySelector("[data-plan-type]");
+      if (select && index < S.challengePlan.length) {
+        S.challengePlan[index] = planValueToDescriptor(select.value);
+      }
+    });
+    return S.challengePlan.slice(0, count);
+  }
+
   function completionText(alarm) {
     if (alarm.mode !== "challenge") return "Standard";
     const count = alarmParticipants(alarm).length;
@@ -362,6 +432,7 @@
       const extras = [];
       if (alarm.mode === "challenge") extras.push(completionText(alarm));
       if (alarm.skip_next) extras.push("Next ring skipped");
+      if (alarm.muted) extras.push("Muted — no sound");
       if (alarm.music_name) extras.push(I18N()?.t("card.music", { name: alarm.music_name }) || `Music · ${alarm.music_name}`);
       if (alarm.calendar_name) extras.push(I18N()?.t("card.calendar", { name: alarm.calendar_name }) || `Special days · ${alarm.calendar_name}`);
       return `
@@ -490,10 +561,24 @@
     target.max = String(max);
     if (Number(target.value) > max) target.value = String(max);
 
-    const type = $("#alarm-challenge-type").value;
+    const count = Math.max(1, Math.min(10, Number($("#alarm-challenge-count").value) || 1));
+    const multi = count > 1;
+    $("#single-challenge-type-field").hidden = multi;
+    $("#challenge-plan-wrap").hidden = !multi;
+    if (!multi && S.challengePlan?.length) {
+      $("#alarm-challenge-type").value = descriptorToValue(S.challengePlan[0]);
+    }
+    renderChallengePlan(count);
+
+    const type = multi ? S.challengePlan[0]?.type : planValueToDescriptor($("#alarm-challenge-type").value).type;
+    const patternSize = multi
+      ? S.challengePlan[0]?.size
+      : planValueToDescriptor($("#alarm-challenge-type").value).size;
     const questions = S.data?.questions || [];
     const hint = $("#challenge-type-hint");
-    if (type === "text" || type === "choice" || type === "random_choice") {
+    if (multi) {
+      hint.textContent = `A different challenge can be used for each of the ${count} steps.`;
+    } else if (type === "text" || type === "choice" || type === "random_choice") {
       const poolKind = type === "random_choice" ? "choice" : type;
       const poolCount = poolKind === "choice"
         ? questions.filter((q) => q.kind === "choice").length
@@ -506,7 +591,13 @@
     } else if (type === "color") {
       hint.textContent = "Each person gets a target swatch and four colours to choose from.";
     } else if (type === "pattern") {
-      hint.textContent = "Each person paints a small target pattern.";
+      hint.textContent = `Each person paints a ${patternSize || 3}×${patternSize || 3} target pattern.`;
+    } else if (type === "hold") {
+      hint.textContent = "Hold the on-screen button for five seconds.";
+    } else if (type === "typing") {
+      hint.textContent = "Type a generated phrase exactly. Copy and paste are disabled.";
+    } else if (type === "dice") {
+      hint.textContent = "Roll a die and match the target; the fifth try is guaranteed.";
     } else {
       hint.textContent = "Arithmetic generated per person.";
     }
@@ -531,7 +622,17 @@
     $("#alarm-delete").hidden = !alarm;
     $("#alarm-completion").value = alarm?.completion_mode || "all";
     $("#alarm-target").value = alarm?.target_count || 1;
-    $("#alarm-challenge-type").value = alarm?.challenge_type || "math";
+    const count = Number(alarm?.challenge_count || 1);
+    const savedPlan = Array.isArray(alarm?.challenge_plan) && alarm.challenge_plan.length
+      ? alarm.challenge_plan.map((item) => ({ ...item }))
+      : Array.from({ length: count }, () => ({
+        type: alarm?.challenge_type || "math",
+        ...(alarm?.challenge_type === "pattern" ? { size: 3 } : {}),
+      }));
+    S.challengePlan = savedPlan.slice(0, count);
+    ensureChallengePlan(count);
+    $("#alarm-challenge-type").value = descriptorToValue(S.challengePlan[0]);
+    $("#alarm-muted").checked = Boolean(alarm?.muted);
     $("#alarm-slug").value = alarm?.slug || randomSlug();
 
     const days = new Set(alarm ? alarm.days : [1, 2, 3, 4, 5]);
@@ -591,9 +692,10 @@
         error.textContent = "Challenges per person must be between 1 and 10.";
         return;
       }
-      const type = $("#alarm-challenge-type").value;
-      if (type === "text" || type === "choice" || type === "random_choice") {
-        const poolKind = type === "random_choice" ? "choice" : type;
+      const plan = currentChallengePlan();
+      for (const step of plan) {
+        if (!["text", "choice", "random_choice"].includes(step.type)) continue;
+        const poolKind = step.type === "random_choice" ? "choice" : step.type;
         const available = (S.data?.questions || []).filter(
           (q) => (q.kind || "text") === poolKind
         ).length;
@@ -609,7 +711,7 @@
       error.textContent = "The finish target must be between 1 and the number of selected users.";
       return;
     }
-    const slug = mode === "challenge" ? $("#alarm-slug").value.trim().toLowerCase() : "";
+    const slug = $("#alarm-slug").value.trim().toLowerCase();
     if (slug && !/^[a-z0-9][a-z0-9_-]{2,39}$/.test(slug)) {
       error.textContent = "Shortlink must be 3-40 characters: a-z, 0-9, - or _.";
       return;
@@ -628,7 +730,9 @@
       participants,
       completion_mode: completionMode,
       target_count: completionMode === "count" ? target : 1,
-      challenge_type: $("#alarm-challenge-type").value,
+      challenge_type: currentChallengePlan()[0]?.type || "math",
+      challenge_plan: currentChallengePlan(),
+      muted: $("#alarm-muted").checked,
       music_id: $("#alarm-music").value ? Number($("#alarm-music").value) : null,
       calendar_id: once ? null : ($("#alarm-calendar").value ? Number($("#alarm-calendar").value) : null),
       slug,
@@ -1692,6 +1796,25 @@
       }
     });
 
+    $("#alarm-challenge-count").addEventListener("input", updateChallengeOptions);
+    $("#alarm-challenge-type").addEventListener("change", () => {
+      S.challengePlan = [planValueToDescriptor($("#alarm-challenge-type").value)];
+    });
+    $("#challenge-plan-list").addEventListener("change", (event) => {
+      const row = event.target.closest("[data-plan-index]");
+      if (!row) return;
+      const index = Number(row.dataset.planIndex);
+      S.challengePlan[index] = planValueToDescriptor(event.target.value);
+    });
+    $("#challenge-plan-list").addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-plan-move]");
+      if (!btn) return;
+      const index = Number(btn.dataset.planIndex);
+      const target = btn.dataset.planMove === "up" ? index - 1 : index + 1;
+      if (target < 0 || target >= S.challengePlan.length) return;
+      [S.challengePlan[index], S.challengePlan[target]] = [S.challengePlan[target], S.challengePlan[index]];
+      renderChallengePlan(S.challengePlan.length);
+    });
     $("#links-list").addEventListener("click", (event) => {
       const btn = event.target.closest("button[data-link-action]");
       if (btn) linkAction(btn);

@@ -6,6 +6,7 @@ configured IANA timezone so DST transitions behave correctly.
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from datetime import date, datetime, timedelta
@@ -20,8 +21,12 @@ DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MODES = ("standard", "challenge")
 DIFFICULTIES = ("easy", "normal", "hard")
 QUESTION_SOURCES = ("auto", "custom")
-CHALLENGE_TYPES = ("math", "text", "choice", "random_choice", "color", "pattern")
+CHALLENGE_TYPES = (
+    "math", "text", "choice", "random_choice", "color", "pattern",
+    "hold", "typing", "dice",
+)
 CUSTOM_TYPES = ("text", "choice", "random_choice")
+PATTERN_SIZES = (3, 6, 9)
 QUESTION_KINDS = ("text", "choice")
 COMPLETION_MODES = ("all", "count")
 MAX_ALARM_USERS = 6
@@ -258,6 +263,49 @@ def answers_match(raw: object, expected: str, answer_type: str = "number") -> bo
 
 
 # --------------------------------------------------------------- validation
+def normalize_challenge_plan(
+    raw: object, count: int, fallback_type: str, fallback_size: int = 3
+) -> tuple[list[dict] | None, str | None]:
+    """Normalize an ordered challenge plan to [{type, size?}, ...]."""
+    count = max(1, min(10, int(count)))
+    entries: list[object]
+    if isinstance(raw, list) and raw:
+        entries = list(raw)
+    else:
+        entries = [fallback_type] * count
+    if len(entries) != count:
+        return None, "The challenge plan must match Challenges per person"
+    plan: list[dict] = []
+    for entry in entries:
+        raw_type = entry.get("type") if isinstance(entry, dict) else entry
+        raw_size = entry.get("size") if isinstance(entry, dict) else None
+        if not isinstance(raw_type, str):
+            return None, "Invalid challenge type in the plan"
+        kind = raw_type.strip().lower()
+        size = 3
+        if kind in ("pattern3", "pattern6", "pattern9"):
+            size = int(kind[-1])
+            kind = "pattern"
+        elif kind == "pattern":
+            try:
+                size = int(raw_size if raw_size is not None else fallback_size)
+            except (TypeError, ValueError):
+                return None, "Pattern size must be 3, 6 or 9"
+            if size not in PATTERN_SIZES:
+                return None, "Pattern size must be 3, 6 or 9"
+        if kind not in CHALLENGE_TYPES:
+            return None, f"Unknown challenge type: {raw_type}"
+        item = {"type": kind}
+        if kind == "pattern":
+            item["size"] = size
+        plan.append(item)
+    return plan, None
+
+
+def plan_types(plan: list[dict] | None) -> list[str]:
+    return [str(item.get("type", "math")) for item in (plan or [])]
+
+
 def validate_alarm_payload(
     data: dict,
     *,
@@ -390,6 +438,12 @@ def validate_alarm_payload(
         data.get("challenge_type")
         or ("text" if data.get("question_source") == "custom" else "math")
     )
+    if challenge_type in ("pattern3", "pattern6", "pattern9"):
+        challenge_type = "pattern"
+        try:
+            data["pattern_size"] = int(str(data.get("challenge_type"))[-1])
+        except (TypeError, ValueError):
+            pass
     if challenge_type not in CHALLENGE_TYPES:
         return None, "Unknown challenge type"
     if mode != "challenge":
@@ -402,15 +456,32 @@ def validate_alarm_payload(
         return None, "Challenges per person must be between 1 and 10"
     if mode != "challenge":
         challenge_count = 1
-    question_source = "custom" if challenge_type in CUSTOM_TYPES else "auto"
+    pattern_size = int(data.get("pattern_size", 3) or 3)
+    if pattern_size not in PATTERN_SIZES:
+        return None, "Pattern size must be 3, 6 or 9"
+    plan = None
+    if mode == "challenge":
+        plan, plan_error = normalize_challenge_plan(
+            data.get("challenge_plan"), challenge_count, challenge_type, pattern_size
+        )
+        if plan_error:
+            return None, plan_error
+        challenge_type = plan[0]["type"]
+        pattern_size = plan[0].get("size", 3)
+    question_source = (
+        "custom" if any(t in CUSTOM_TYPES for t in plan_types(plan)) else "auto"
+    )
     counts = dict(question_counts or {})
     if question_count:
         counts.setdefault("text", int(question_count))
-    if enabled and mode == "challenge" and challenge_type in CUSTOM_TYPES:
-        pool_kind = "choice" if challenge_type == "random_choice" else challenge_type
-        if counts.get(pool_kind, 0) < 1:
-            label = "text" if pool_kind == "text" else "multiple-choice"
-            return None, f"Add at least one {label} question before using this type"
+    if enabled and mode == "challenge":
+        for step_type in plan_types(plan):
+            if step_type not in CUSTOM_TYPES:
+                continue
+            pool_kind = "choice" if step_type == "random_choice" else step_type
+            if counts.get(pool_kind, 0) < 1:
+                label = "text" if pool_kind == "text" else "multiple-choice"
+                return None, f"Add at least one {label} question before using this type"
 
     # ----------------------------------------------------------------- music
     music_id = data.get("music_id")
@@ -483,6 +554,9 @@ def validate_alarm_payload(
         "question_source": question_source,
         "challenge_type": challenge_type,
         "challenge_count": challenge_count,
+        "challenge_plan": json.dumps(plan, separators=(",", ":")) if plan else None,
+        "pattern_size": pattern_size,
+        "muted": bool(data.get("muted", False)),
         "music_id": music_id,
         "calendar_id": calendar_id,
         "slug": slug,
