@@ -1665,7 +1665,11 @@ class Handler(BaseHTTPRequestHandler):
         token = match.group("token")
         result = self.app.engine.answer(token, body.get("answer"))
         answer = result.get("answer") or {}
-        if result.get("status") == "correct" and answer.get("answered"):
+        if (
+            result.get("status") == "correct"
+            and answer.get("answered")
+            and answer.get("state") == "ringing"
+        ):
             challenge = self.app.store.get_challenge_by_token(token)
             if challenge:
                 self.app.store.record_ip_pass(

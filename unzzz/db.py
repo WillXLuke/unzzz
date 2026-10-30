@@ -736,6 +736,9 @@ class Store:
             (event_id, ip),
         )
 
+    def clear_ip_passes(self, event_id: int) -> None:
+        self._exec("DELETE FROM event_ip_passes WHERE event_id=?", (event_id,))
+
     def delete_alarm(self, alarm_id: int) -> bool:
         return self._exec("DELETE FROM alarms WHERE id = ?", (alarm_id,)) > 0
 
@@ -898,14 +901,22 @@ class Store:
             "AND state IN ('ringing','snoozed')",
             (state, time.time(), reason, event_id),
         )
+        # Identity memory only exists while this ring can still be answered.
+        self.clear_ip_passes(event_id)
 
     def interrupt_stale_events(self) -> int:
-        return self._exec(
+        updated = self._exec(
             "UPDATE events SET state='interrupted', stopped_at=?, "
             "stop_reason='server restarted while ringing' "
             "WHERE state='ringing'",
             (time.time(),),
         )
+        if updated:
+            self._exec(
+                "DELETE FROM event_ip_passes WHERE event_id IN "
+                "(SELECT id FROM events WHERE state='interrupted')"
+            )
+        return updated
 
     # ------------------------------------------------------------ challenges
     def add_challenge(

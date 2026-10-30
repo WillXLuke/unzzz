@@ -1048,6 +1048,20 @@ code {
 .paint-grid.target { width: min(145px, 45vw); gap: 5px; }
 .paint-grid.target .paint-cell { border-radius: 7px; cursor: default; }
 .paint-grid.target .paint-cell.on { background: var(--accent); }
+.paint-grid.paint-size-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  width: min(320px, 82vw);
+  gap: 5px;
+}
+.paint-grid.paint-size-9 {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  width: min(396px, 90vw);
+  gap: 3px;
+}
+.paint-grid.target.paint-size-6 { width: min(210px, 56vw); gap: 4px; }
+.paint-grid.target.paint-size-9 { width: min(252px, 64vw); gap: 3px; }
+.paint-grid.paint-size-6 .paint-cell { border-radius: 8px; }
+.paint-grid.paint-size-9 .paint-cell { border-radius: 5px; }
 .paint-row { display: flex; gap: 24px; align-items: center; justify-content: center; flex-wrap: wrap; }
 @media (max-width: 480px) {
   .choice-grid, .color-grid { grid-template-columns: 1fr; }

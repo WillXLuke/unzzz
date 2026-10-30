@@ -96,3 +96,8 @@ class NewUIAssetTests(unittest.TestCase):
         js = (ASSETS / "challenge.js").read_text()
         for marker in ("bindHold", "bindDice", "typing-phrase", "requestSubmit"):
             self.assertIn(marker, js)
+        self.assertNotIn('style="grid-template-columns', js)
+        self.assertIn("paint-size-${size}", js)
+        css = (ASSETS / "style.css").read_text()
+        self.assertIn(".paint-grid.paint-size-6", css)
+        self.assertIn(".paint-grid.paint-size-9", css)

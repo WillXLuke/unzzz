@@ -1536,6 +1536,18 @@ class IpIdentityMemoryTests(ApiBase):
         self.assertEqual(data["ip_passed"]["user_name"], "Ada")
         self.assertGreaterEqual(data["ip_passed"]["remaining"], 1)
 
+        state = self.fx.state()["active_events"][0]
+        token2 = next(c["token"] for c in state["challenges"] if c["user_id"] == 2)
+        challenge2 = self.fx.store.get_challenge_by_token(token2)
+        self.fx.answer(token2, challenge2["answer"])
+
+        self.assertIsNone(
+            self.fx.store.get_ip_pass(event["id"], "127.0.0.1")
+        )
+        _status, data, _ = self.fx.client.request("GET", "/api/alarm/ip-memory")
+        self.assertIsNone(data["ip_passed"])
+        self.assertEqual(data["last_event"]["state"], "completed")
+
 
 class NewChallengeTypeApiTests(ApiBase):
     def _single_challenge(self, challenge_type: str, **extra):

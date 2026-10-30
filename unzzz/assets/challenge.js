@@ -153,8 +153,8 @@
       const size = Number(payload.size) || 3;
       return `<div class="question-box" id="answer-area">
         <div class="paint-row">
-          <div class="paint-section"><span class="paint-label">Target</span><div class="paint-grid target" style="grid-template-columns:repeat(${size},1fr)">${patternGridHtml(size, payload.target, false)}</div></div>
-          <div class="paint-section"><span class="paint-label">Your pattern</span><div class="paint-grid" id="paint-grid" style="grid-template-columns:repeat(${size},1fr)">${patternGridHtml(size, [], true)}</div></div>
+          <div class="paint-section"><span class="paint-label">Target</span><div class="paint-grid target paint-size-${size}">${patternGridHtml(size, payload.target, false)}</div></div>
+          <div class="paint-section"><span class="paint-label">Your pattern</span><div class="paint-grid paint-size-${size}" id="paint-grid">${patternGridHtml(size, [], true)}</div></div>
         </div>
         <form id="answer-form" autocomplete="off"><button class="btn primary wide" type="submit" id="answer-btn">Answer</button></form>
         ${feedback}
