@@ -194,7 +194,7 @@
       return `<div class="question-box" id="answer-area">
         <div class="dice-wrap">
           <div class="dice-target">Target: <strong>${target}</strong></div>
-          <div class="dice-face" id="dice-face">🎲</div>
+          <div class="dice-face" id="dice-face" aria-label="Dice result"><span class="dice-number" id="dice-number">?</span></div>
           <p class="muted small">Try ${tries} of ${maxTries} — the fifth try is guaranteed.</p>
           <button class="btn primary wide" type="button" id="dice-roll">Roll the die</button>
         </div>
@@ -306,16 +306,18 @@
   function bindHold(button) {
     const seconds = Number(button.dataset.holdSeconds) || 5;
     let timer = null;
+    let pointerId = null;
     let remaining = seconds;
     const count = $("#hold-count");
     const ring = $("#hold-ring");
     const stop = (cancelled = true) => {
       if (timer) clearInterval(timer);
       timer = null;
+      pointerId = null;
       remaining = seconds;
       if (count) count.textContent = String(seconds);
       if (ring) ring.classList.remove("holding");
-      if (cancelled) {
+      if (cancelled && !S.holdDone) {
         button.textContent = "Press and hold";
         button.disabled = false;
       }
@@ -323,6 +325,11 @@
     const start = (event) => {
       if (event) event.preventDefault();
       if (timer || S.holdDone) return;
+      if (event && event.pointerType === "mouse" && event.button !== 0) return;
+      pointerId = event?.pointerId ?? null;
+      if (pointerId != null) {
+        try { button.setPointerCapture(pointerId); } catch (_err) { /* noop */ }
+      }
       remaining = seconds;
       button.textContent = "Keep holding…";
       if (ring) ring.classList.add("holding");
@@ -342,8 +349,13 @@
     };
     button.addEventListener("pointerdown", start);
     button.addEventListener("pointerup", () => { if (!S.holdDone) stop(); });
-    button.addEventListener("pointerleave", () => { if (!S.holdDone) stop(); });
     button.addEventListener("pointercancel", () => { if (!S.holdDone) stop(); });
+    button.addEventListener("lostpointercapture", () => { if (!S.holdDone) stop(); });
+    button.addEventListener("pointerleave", (event) => {
+      // Touch pointers are captured; leaving the element while still holding
+      // should not cancel. Mouse users get a leave-to-cancel affordance.
+      if (event.pointerType === "mouse" && !S.holdDone) stop();
+    });
     button.addEventListener("contextmenu", (event) => event.preventDefault());
   }
 
@@ -358,8 +370,11 @@
       S.diceRolled = true;
       button.disabled = true;
       const face = $("#dice-face");
+      const number = $("#dice-number");
+      if (number) number.textContent = String(roll);
       if (face) {
-        face.textContent = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][roll - 1];
+        face.classList.remove("rolling");
+        void face.offsetWidth;
         face.classList.add("rolling");
       }
       const input = $("#answer");

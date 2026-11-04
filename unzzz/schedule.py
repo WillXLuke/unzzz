@@ -1,4 +1,4 @@
-"""Alarm scheduling math, special-day calendars and challenge questions.
+"""Alarm scheduling math and challenge questions.
 
 All instants are epoch seconds (UTC).  Wall-clock arithmetic happens in the
 configured IANA timezone so DST transitions behave correctly.
@@ -81,20 +81,7 @@ def now_local(tz: ZoneInfo, ts: float | None = None) -> datetime:
     return datetime.fromtimestamp(ts, tz) if ts is not None else datetime.now(tz)
 
 
-def _day_is_active(
-    day: date, days_mask: int, calendar: dict[str, str] | None
-) -> bool:
-    """Calendar overrides the weekly pattern for dates it knows about.
-
-    A date marked ``working`` rings even on a Sunday (Chinese 调休), and a
-    date marked ``holiday`` is skipped even on a Monday.
-    """
-    if calendar:
-        kind = calendar.get(day.isoformat())
-        if kind == "working":
-            return True
-        if kind == "holiday":
-            return False
+def _day_is_active(day: date, days_mask: int) -> bool:
     return bool(days_mask & (1 << (day.isoweekday() - 1)))
 
 
@@ -105,7 +92,6 @@ def next_occurrence(
     once_date: str | None,
     tz: ZoneInfo,
     after_ts: float | None = None,
-    calendar: dict[str, str] | None = None,
 ) -> float | None:
     """Next epoch instant strictly after *after_ts* (default: now)."""
     now_ts = now_local(tz).timestamp() if after_ts is None else after_ts
@@ -127,7 +113,7 @@ def next_occurrence(
     # A year of holidays is allowed, so scan generously.
     for offset in range(0, 400):
         day = now.date() + timedelta(days=offset)
-        if not _day_is_active(day, days_mask, calendar):
+        if not _day_is_active(day, days_mask):
             continue
         candidate = datetime(day.year, day.month, day.day, hour, minute, tzinfo=tz)
         if candidate.timestamp() > now_ts:
@@ -313,13 +299,11 @@ def validate_alarm_payload(
     users: list[dict] | None = None,
     question_count: int = 0,
     question_counts: dict[str, int] | None = None,
-    calendar: dict[str, str] | None = None,
     auto_slug: str | None = None,
 ) -> tuple[dict | None, str | None]:
     """Validate a create/update alarm request. Returns (clean, error).
 
     ``users`` is the full user list; it is used for participant validation.
-    ``calendar`` is the selected special-days map (date -> working|holiday).
     """
     if not isinstance(data, dict):
         return None, "Invalid request body"
@@ -493,17 +477,6 @@ def validate_alarm_payload(
         except (TypeError, ValueError):
             return None, "music_id must be a number"
 
-    # ---------------------------------------------------------- special days
-    calendar_id = data.get("calendar_id")
-    if calendar_id in (None, "", 0, "0") or not mask:
-        calendar_id = None
-        calendar = None
-    else:
-        try:
-            calendar_id = int(calendar_id)
-        except (TypeError, ValueError):
-            return None, "calendar_id must be a number"
-
     # ------------------------------------------------------------------ slug
     slug = None
     raw_slug = str(data.get("slug") or "").strip().lower()
@@ -528,13 +501,10 @@ def validate_alarm_payload(
             days_mask=mask,
             once_date=once_date if not mask else None,
             tz=tz,
-            calendar=calendar,
         )
         if next_fire is None:
             if not mask:
                 return None, "That one-time date/time is in the past"
-            if calendar_id:
-                return None, "No future active day in this special-days calendar"
             return None, "No future alarm day"
 
     clean = {
@@ -558,7 +528,6 @@ def validate_alarm_payload(
         "pattern_size": pattern_size,
         "muted": bool(data.get("muted", False)),
         "music_id": music_id,
-        "calendar_id": calendar_id,
         "slug": slug,
         "next_fire": next_fire,
     }

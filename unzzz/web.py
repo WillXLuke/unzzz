@@ -42,7 +42,6 @@ from .schedule import (
     random_slug,
     validate_alarm_payload,
 )
-from .special_days import CalendarParseError, parse_calendar_csv
 
 log = logging.getLogger("unzzz.http")
 
@@ -51,7 +50,6 @@ MAX_BODY = 2 * 1024 * 1024
 MAX_MUSIC_BYTES = 25 * 1024 * 1024
 MAX_QUESTIONS = 500
 MAX_MUSIC_FILES = 200
-MAX_CALENDARS = 50
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 MUSIC_EXTENSIONS = {".wav", ".wave", ".mp3", ".ogg", ".oga", ".flac", ".m4a", ".aac", ".opus"}
 _TOKEN_IN_PATH = re.compile(r"(/s/)[A-Za-z0-9_-]{10,80}")
@@ -274,7 +272,6 @@ class App:
         configured_base = (self.store.get_setting("base_url") or "").strip()
         questions = [self.question_view(q) for q in self.store.list_questions()]
         music = [self.music_view(m) for m in self.store.list_music()]
-        calendars = self.store.list_calendars()
         return {
             "ok": True,
             "needs_setup": not self.auth.configured,
@@ -290,7 +287,6 @@ class App:
             "history": history,
             "questions": questions,
             "music": music,
-            "calendars": calendars,
             "next_alarm": self.engine.next_alarm(),
             "audio": self.engine.audio.describe(),
             "volume": self.engine.volume.status(),
@@ -343,7 +339,6 @@ class App:
                 "question_source": existing.get("question_source", "auto"),
                 "challenge_type": existing.get("challenge_type", "math"),
                 "music_id": existing.get("music_id"),
-                "calendar_id": existing.get("calendar_id"),
                 "slug": existing.get("slug"),
             }
             data.update(body)
@@ -351,20 +346,6 @@ class App:
             data = dict(body)
 
         mode = str(data.get("mode", "standard"))
-        calendar_map: dict[str, str] = {}
-        raw_calendar = data.get("calendar_id")
-        if raw_calendar in (None, "", 0, "0"):
-            data["calendar_id"] = None
-        else:
-            try:
-                calendar_id = int(raw_calendar)
-            except (TypeError, ValueError):
-                return None, "calendar_id must be a number"
-            if not self.store.get_calendar(calendar_id):
-                return None, "Special-days calendar not found"
-            data["calendar_id"] = calendar_id
-            calendar_map = self.store.calendar_day_map(calendar_id)
-
         raw_music = data.get("music_id")
         if raw_music in (None, "", 0, "0"):
             data["music_id"] = None
@@ -399,7 +380,6 @@ class App:
             question_counts={
                 kind: self.store.count_questions(kind) for kind in QUESTION_KINDS
             },
-            calendar=calendar_map,
         )
         if error:
             return None, error
@@ -483,9 +463,6 @@ class Handler(BaseHTTPRequestHandler):
         ("POST", re.compile(r"^/api/music/(?P<id>\d+)/stop$"), "music_preview_stop"),
         ("DELETE", re.compile(r"^/api/music/(?P<id>\d+)$"), "music_delete"),
         ("GET", re.compile(r"^/api/music/(?P<id>\d+)/file$"), "music_file"),
-        ("GET", re.compile(r"^/api/calendars$"), "calendars_list"),
-        ("POST", re.compile(r"^/api/calendars$"), "calendar_import"),
-        ("DELETE", re.compile(r"^/api/calendars/(?P<id>\d+)$"), "calendar_delete"),
         ("POST", re.compile(r"^/api/alarms$"), "alarm_create"),
         ("PUT", re.compile(r"^/api/alarms/(?P<id>\d+)$"), "alarm_update"),
         ("DELETE", re.compile(r"^/api/alarms/(?P<id>\d+)$"), "alarm_delete"),
@@ -1054,33 +1031,28 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"ok": True})
 
     def _all_link_target(self) -> str | None:
+        now = time.time()
+        upcoming = []
+        for alarm in self.app.store.list_alarms():
+            next_fire = alarm.get("next_fire")
+            if (
+                not alarm.get("enabled") or not alarm.get("slug")
+                or not next_fire or float(next_fire) <= now
+                or self.app.engine.alarm_link_expired(alarm)
+            ):
+                continue
+            upcoming.append((float(next_fire), alarm["slug"]))
+        if upcoming:
+            return min(upcoming, key=lambda item: item[0])[1]
+
+        # No future schedule remains (for example a one-time alarm is ringing
+        # right now). Fall back to the active event rather than returning 404.
         for event in self.app.store.active_events():
             alarm_id = event.get("alarm_id")
             if not alarm_id:
                 continue
             alarm = self.app.store.get_alarm(int(alarm_id))
-            if (
-                alarm and alarm.get("slug")
-                and alarm.get("mode") == "challenge"
-                and not self.app.engine.alarm_link_expired(alarm)
-            ):
-                return alarm["slug"]
-        for event in self.app.store.list_events(50):
-            alarm_id = event.get("alarm_id")
-            if not alarm_id:
-                continue
-            alarm = self.app.store.get_alarm(int(alarm_id))
-            if (
-                alarm and alarm.get("slug")
-                and alarm.get("mode") == "challenge"
-                and not self.app.engine.alarm_link_expired(alarm)
-            ):
-                return alarm["slug"]
-        for alarm in self.app.store.list_alarms():
-            if (
-                alarm.get("enabled") and alarm.get("mode") == "challenge"
-                and alarm.get("slug") and not self.app.engine.alarm_link_expired(alarm)
-            ):
+            if alarm and alarm.get("slug") and not self.app.engine.alarm_link_expired(alarm):
                 return alarm["slug"]
         return None
 
@@ -1429,41 +1401,6 @@ class Handler(BaseHTTPRequestHandler):
         path = self.app.music_dir / row["stored_name"]
         self._send_file(path, row["mime"] or "application/octet-stream")
 
-    # ------------------------------------------------------------- calendars
-    def calendars_list(self, match, body) -> None:
-        self._require_login()
-        self._send_json({"ok": True, "calendars": self.app.store.list_calendars()})
-
-    def calendar_import(self, match, body) -> None:
-        self._require_admin()
-        if len(self.app.store.list_calendars()) >= MAX_CALENDARS:
-            raise ApiError(400, f"Maximum of {MAX_CALENDARS} calendars")
-        name = " ".join(str(body.get("name") or "").split())
-        if not (1 <= len(name) <= 40):
-            raise ApiError(400, "Calendar name must be 1-40 characters")
-        csv_text = body.get("csv")
-        if not isinstance(csv_text, str) or not csv_text.strip():
-            raise ApiError(400, "CSV data is required")
-        if len(csv_text) > MAX_BODY:
-            raise ApiError(413, "CSV is too large")
-        try:
-            days = parse_calendar_csv(csv_text)
-        except CalendarParseError as exc:
-            raise ApiError(400, str(exc))
-        item = self.app.store.create_calendar(name, days)
-        rows = [c for c in self.app.store.list_calendars() if c["id"] == item["id"]]
-        self._send_json({"ok": True, "calendar": rows[0] if rows else item}, 201)
-
-    def calendar_delete(self, match, body) -> None:
-        self._require_admin()
-        calendar_id = self._int_id(match)
-        if not self.app.store.get_calendar(calendar_id):
-            raise ApiError(404, "Calendar not found")
-        self.app.store.delete_calendar(calendar_id)
-        self.app.engine.invalidate_calendars()
-        self.app.engine.recompute_schedules()
-        self._send_json({"ok": True})
-
     # ---------------------------------------------------------------- alarms
     def _alarm_view_response(self, alarm: dict) -> dict:
         return self.app.decorate_alarm(alarm, self._base())
@@ -1540,7 +1477,7 @@ class Handler(BaseHTTPRequestHandler):
             if next_fire is None:
                 raise ApiError(
                     400,
-                    "No future alarm day. Check the date or the selected special-days calendar.",
+                    "No future alarm day.",
                 )
         self.app.store.set_alarm_enabled(alarm_id, enable, next_fire)
         if not enable:

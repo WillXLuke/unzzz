@@ -31,7 +31,6 @@ for ARCH in "${ARCHES[@]}"; do
   install -m 0644 "$ROOT/packaging/debian/unzzz.service" "$STAGE/usr/lib/systemd/system/unzzz.service"
   install -m 0644 "$ROOT/README.md" "$STAGE/usr/share/doc/unzzz/README.md"
   install -m 0644 "$ROOT/LICENSE" "$STAGE/usr/share/doc/unzzz/copyright"
-  install -m 0644 "$ROOT/docs/special-days-example.csv" "$STAGE/usr/share/doc/unzzz/examples/special-days-example.csv"
   cp -a "$ROOT/docs/." "$STAGE/usr/share/doc/unzzz/docs/"
   { echo "unzzz ($VERSION) unstable; urgency=medium"; echo; echo "  * Release $VERSION."; echo; echo " -- unzzz maintainers <unzzz@localhost>  $(date -R)"; } \
     > "$STAGE/usr/share/doc/unzzz/changelog"

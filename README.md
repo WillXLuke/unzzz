@@ -53,8 +53,9 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   Expiration defaults to **six hours after the alarm is disabled or removed**;
   a running/stopped recurring alarm keeps its link, and deleted-alarm links
   stay valid for six hours before returning 410.
-- **All-in-one link** — create one shortcut that always opens the most recent
-  alarm challenge, so multiple enabled alarms only need one URL/QR.
+- **All-in-one link** — create one shortcut that always opens the next
+  scheduled alarm, checked again on every access, so multiple enabled alarms
+  only need one URL/QR.
 - **Music** — upload WAV/MP3/OGG/FLAC/M4A/AAC/Opus tracks and choose one per
   alarm. The built-in two-tone beep remains the default. Each track has
   **Test on server** / **Stop** buttons for playback through the server's
@@ -74,9 +75,6 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   (default six hours after disable/removal).
 - **Playback devices** — the Settings tab discovers ALSA PCMs and PulseAudio
   sinks and applies the selected device to aplay/mpv/paplay.
-- **Special days** — import named CSV calendars with each date marked `work`
-  or `holiday` (aliases: `working`, `rest`). A `work` Sunday rings; a `holiday`
-  Monday stays quiet. Select a calendar per repeating alarm.
 - **Users** — add, rename, pause, delete up to 200 accounts; every alarm can
   select at most six.
 - **Lightweight** — stdlib only, ~30 MB RSS, SQLite WAL, one scheduler thread,
@@ -147,8 +145,7 @@ Open <http://127.0.0.1:8888/>, set the admin password, then:
 1. Add people in **Users**.
 2. Add questions in **Challenges** if you want custom questions.
 3. Upload a sound in **Music** (optional).
-4. Import a **Special days** CSV (optional).
-5. Create an alarm and press **Ring now** to test it.
+4. Create an alarm and press **Ring now** to test it.
 
 Python 3.9+ is required (Raspberry Pi OS Bookworm has 3.11). Nothing is
 installed with pip. Tests:
@@ -163,10 +160,10 @@ Download or build the package matching the machine:
 
 ```bash
 # 64-bit PC / server
-sudo apt install ./unzzz_2.3.3_amd64.deb
+sudo apt install ./unzzz_2.3.4_amd64.deb
 
 # 64-bit Raspberry Pi OS
-sudo apt install ./unzzz_2.3.3_arm64.deb
+sudo apt install ./unzzz_2.3.4_arm64.deb
 ```
 
 The package:
@@ -183,8 +180,8 @@ from a checkout with:
 
 ```bash
 ./packaging/build-deb.sh
-# dist/unzzz_2.3.3_amd64.deb
-# dist/unzzz_2.3.3_arm64.deb
+# dist/unzzz_2.3.4_amd64.deb
+# dist/unzzz_2.3.4_arm64.deb
 ```
 
 ## Raspberry Pi install
@@ -247,15 +244,14 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
 ## Panel guide
 
 - **Alarms** — next alarm, countdown, cards with mode, selected users, music,
-  special calendar, next occurrence, toggle, **QR**, **Ring now**, **Edit**.
+  next occurrence, toggle, **QR**, **Ring now**, **Edit**.
 - **Alarm editor** — label, time, repeat days or one-time date, standard vs
   challenge, 1–6 selected users, **challenge type** (maths, text, multiple
   choice, random multiple choice, colour match, pattern paint 3×3/6×6/9×9,
   button hold, typing test, dice), **challenges per person** (1–10) and an
   ordered plan when that count is above one, finish condition (all or fixed
-  number), public shortlink for challenge alarms, music, muted sound,
-  special-days calendar, snooze limits, give-up limit. Links are managed in
-  the **Links** tab.
+  number), public shortlink for challenge alarms, music, muted sound, snooze
+  limits, give-up limit. Links are managed in the **Links** tab.
 - **Skip next** — one-shot suspension of the next occurrence, available on the
   alarm card. The history records a *skipped* event; the following occurrence
   is scheduled normally.
@@ -263,7 +259,7 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
   skipped when an alarm rings.
 - **Links** — enabled alarm links plus the all-in-one shortcut. Each item has
   **Modify**, **QR** and **Open link**. Modify edits the slug and optional
-  expiration. The all-in-one shortcut opens the most recent alarm challenge.
+  expiration. The all-in-one shortcut opens the next scheduled alarm.
 - **Challenges** — add/edit/delete text or multiple-choice questions. Choice
   questions need 2–6 unique options plus the correct option. Import a CSV with
   `question,option a,option b,option c,option d,correct answer`. Alarms using
@@ -272,8 +268,6 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
   track has **Test on server** and **Stop** buttons; the test plays through the
   server's selected playback device. A track cannot be deleted while an alarm
   or active ring uses it.
-- **Special days** — import named CSVs, see work/holiday counts and how many
-  alarms use each calendar, and delete calendars (alarms fall back to weekdays).
 - **Identity memory** — after an IP completes a full challenge, the alarm link
   shows that the identity has passed and lists who is still left. The same IP
   cannot claim another identity for that ring.
@@ -363,8 +357,9 @@ http://192.168.5.19:8888/alarmmorning
   removed**. A custom future expiration is preserved across later changes.
   Deleting an alarm retires its link after six hours (the link shows a removed
   notice until then, then returns 410).
-- The all-in-one link redirects to the latest active challenge, otherwise the
-  most recent challenge link, otherwise the next enabled challenge alarm.
+- The all-in-one link checks the next enabled alarm on every access and
+  redirects to the alarm with the earliest future `next_fire`. If no future
+  schedule remains, it falls back to the currently active event.
 - After an event stops, its private challenge links and the shared page's
   last-result view expire after **Challenge link lifetime after stop**
   (Settings, default 30 minutes, `0` = immediately).
@@ -385,27 +380,6 @@ How many days are in a week?,5,6,7,8,c
   exact option text.
 - Import is capped by the normal 200-question limit.
 - Sample: [choice-questions-example.csv](docs/choice-questions-example.csv).
-
-## Special days CSV
-
-Each CSV becomes a named calendar. Format:
-
-```csv
-date,type,note
-2026-01-01,holiday,New Year
-2026-01-04,work,Make-up workday
-2026-02-15,holiday,Spring Festival
-```
-
-- Dates: `2026-01-01`, `2026/1/1`, `2026.1.1` or compact `20260101`.
-- Types: `work` or `working` (also `on`, `yes`, `1`) for a working day;
-  `holiday` or `rest` (also `off`, `no`, `0`) for a rest day.
-- A note is optional. A header row is optional. Delimiters comma, semicolon and
-  tab are accepted.
-
-The CSV parser is language-neutral. The panel can be switched between five
-languages from the top-right menu; install `fonts-noto-cjk` on a minimal kiosk
-if Chinese or Japanese text renders as boxes.
 
 ## CLI
 
@@ -477,7 +451,7 @@ sudo systemctl restart unzzz
 `UNZZZ_DATA_DIR` contains:
 
 - `unzzz.sqlite3` — settings, password hash, sessions, users, questions, music
-  metadata, calendars, alarms, events, challenges;
+  metadata, alarms, events, challenges;
 - `beep.wav` — regenerated if missing;
 - `music/` — uploaded audio.
 
@@ -549,10 +523,6 @@ or set **Public base URL** in Settings.
 **Alarm “missed”.** The server was not running within 2 minutes of the scheduled
 time (or its clock jumped). It records the miss and schedules the next run.
 
-**Special day does not fire.** Confirm the date is in the selected calendar,
-the type is `work`, the alarm is repeating, and the alarm has a future active
-day. One-time alarms ignore calendars.
-
 **Shared link 404.** The alarm was deleted, the slug was changed, or the URL was
 mistyped. Use the current QR/card link.
 
@@ -569,10 +539,9 @@ event. Press **Skip next** again to undo before the occurrence arrives.
 | HTTP API + routes | `unzzz/web.py` | `ThreadingHTTPServer`, regex router, static assets, uploads, QR |
 | Storage | `unzzz/db.py` | One SQLite connection + `RLock`, WAL, in-place v1→v2→v3 migration |
 | Scheduler/engine | `unzzz/engine.py` | 1 s ticker, one ring thread per event, targets, music |
-| Time math | `unzzz/schedule.py` | `zoneinfo`, weekday masks, special calendars, validation |
+| Time math | `unzzz/schedule.py` | `zoneinfo`, weekday masks, validation |
 | Challenge types | `unzzz/challenge_types.py` | maths/text/choice/random-choice/colour/pattern generation and checking |
 | Question CSV | `unzzz/question_csv.py` | multiple-choice CSV import and answer-letter validation |
-| Special days CSV | `unzzz/special_days.py` | work/holiday CSV import and aliases |
 | Auth | `unzzz/auth.py` | PBKDF2-SHA256, hashed sessions, throttle |
 | Sound | `unzzz/audio.py` | WAV synthesis, music formats, device args, preview/test subprocesses |
 | Volume | `unzzz/volume.py` | amixer/pactl target volume, save/restore, crash recovery |

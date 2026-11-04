@@ -101,3 +101,7 @@ class NewUIAssetTests(unittest.TestCase):
         css = (ASSETS / "style.css").read_text()
         self.assertIn(".paint-grid.paint-size-6", css)
         self.assertIn(".paint-grid.paint-size-9", css)
+        self.assertIn("dice-number", js)
+        self.assertNotIn("⚀", js)
+        self.assertIn("setPointerCapture", js)
+        self.assertIn("touch-action: none", css)

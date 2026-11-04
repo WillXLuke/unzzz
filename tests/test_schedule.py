@@ -78,32 +78,6 @@ class NextOccurrenceTests(unittest.TestCase):
         local = datetime.fromtimestamp(nf, tz)
         self.assertEqual(local.strftime("%Y-%m-%d %H:%M %z"), "2026-10-25 07:30 +0100")
 
-    def test_special_day_calendar_overrides_weekdays(self) -> None:
-        # Monday 26 Oct 2026 is marked as a holiday, Tuesday as working.
-        after = datetime(2026, 10, 26, 6, 0, tzinfo=self.tz).timestamp()
-        nf = next_occurrence(
-            hhmm="07:30",
-            days_mask=days_to_mask([1, 2, 3, 4, 5]),
-            once_date=None,
-            tz=self.tz,
-            after_ts=after,
-            calendar={"2026-10-26": "holiday", "2026-10-27": "working"},
-        )
-        self.assertEqual(self.dt(nf).strftime("%Y-%m-%d %H:%M"), "2026-10-27 07:30")
-
-    def test_working_weekend_rings_even_if_not_in_mask(self) -> None:
-        # Sunday 1 Nov 2026 is marked as a make-up working day.
-        after = datetime(2026, 10, 31, 12, 0, tzinfo=self.tz).timestamp()
-        nf = next_occurrence(
-            hhmm="07:30",
-            days_mask=days_to_mask([1]),
-            once_date=None,
-            tz=self.tz,
-            after_ts=after,
-            calendar={"2026-11-01": "working"},
-        )
-        self.assertEqual(self.dt(nf).strftime("%Y-%m-%d %H:%M"), "2026-11-01 07:30")
-
     def test_days_helpers(self) -> None:
         mask = days_to_mask([1, 3, 5])
         self.assertEqual(mask_to_days(mask), [1, 3, 5])

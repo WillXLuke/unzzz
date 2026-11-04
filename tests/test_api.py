@@ -163,13 +163,6 @@ class ServerFixture:
         assert status == 201, (status, data)
         return data["question"]
 
-    def add_calendar(self, name: str, csv_text: str) -> dict:
-        status, data, _ = self.client.request(
-            "POST", "/api/calendars", {"name": name, "csv": csv_text}
-        )
-        assert status == 201, (status, data)
-        return data["calendar"]
-
 
 class ApiBase(unittest.TestCase):
     def setUp(self) -> None:
@@ -919,39 +912,6 @@ class ShortlinkTests(ApiBase):
         self.assertEqual(status, 404)
 
 
-class CalendarTests(ApiBase):
-    def test_import_use_and_delete_calendar(self) -> None:
-        self.fx.setup_admin()
-        cal = self.fx.add_calendar(
-            "China test",
-            "日期,类型,备注\n2026-10-26,holiday,调休休息\n2026-11-01,working,调休上班\n",
-        )
-        self.assertEqual(cal["day_count"], 2)
-        self.assertEqual(cal["working_days"], 1)
-        self.assertEqual(cal["holiday_days"], 1)
-        alarm = self.fx.create_alarm(calendar_id=cal["id"])
-        state = self.fx.state()
-        stored = next(a for a in state["alarms"] if a["id"] == alarm["id"])
-        self.assertEqual(stored["calendar_id"], cal["id"])
-        self.assertEqual(stored["calendar_name"], "China test")
-        self.assertEqual(state["calendars"][0]["alarms_using"], 1)
-
-        status, data, _ = self.fx.client.request("DELETE", f"/api/calendars/{cal['id']}")
-        self.assertEqual(status, 200)
-        state = self.fx.state()
-        stored = next(a for a in state["alarms"] if a["id"] == alarm["id"])
-        self.assertIsNone(stored["calendar_id"])
-        self.assertEqual(state["calendars"], [])
-
-    def test_invalid_calendar_csv(self) -> None:
-        self.fx.setup_admin()
-        status, data, _ = self.fx.client.request(
-            "POST", "/api/calendars", {"name": "Bad", "csv": "date,type\n2026-99-99,holiday\n"}
-        )
-        self.assertEqual(status, 400)
-        self.assertIn("invalid date", data["error"])
-
-
 class DeviceSettingsTests(ApiBase):
     def test_audio_device_setting_and_detection(self) -> None:
         self.fx.setup_admin()
@@ -1363,97 +1323,67 @@ class PublicStandardLinkTests(ApiBase):
 
 
 class AllInOneLinkTests(ApiBase):
-    def test_all_link_redirects_to_recent_challenge(self) -> None:
+    def _location(self) -> str:
+        import urllib.error
+        import urllib.request
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+        try:
+            opener.open(self.fx.client.base + "/all", timeout=5)
+            self.fail("expected a redirect")
+        except urllib.error.HTTPError as exc:
+            location = exc.headers.get("Location")
+            self.assertEqual(exc.code, 302)
+            exc.close()
+            return location
+        return ""
+
+    def test_all_link_redirects_to_next_scheduled_alarm(self) -> None:
         self.fx.setup_admin()
-        user = self.fx.add_user("Ada")
-        alarm = self.fx.create_alarm(
-            mode="challenge", participants=[user["id"]],
-            challenge_type="math", slug="challenge-link",
-        )
-        self.fx.ring(alarm["id"])
+        later = self.fx.create_alarm(label="Later", slug="later-alarm")
+        sooner = self.fx.create_alarm(label="Sooner", slug="sooner-alarm")
+        now = time.time()
+        self.fx.store.set_next_fire(later["id"], now + 3600)
+        self.fx.store.set_next_fire(sooner["id"], now + 600)
         status, data, _ = self.fx.client.request(
             "POST", "/api/links/all", {"slug": "all"}
         )
         self.assertEqual(status, 201, data)
-        self.assertEqual(data["link"]["kind"], "all")
-        self.assertEqual(data["link"]["slug"], "all")
+        self.assertEqual(self._location(), "/sooner-alarm")
 
-        status, body, headers = self.fx.client.request("GET", "/qr/all.svg")
+    def test_all_link_rechecks_the_next_alarm_on_every_access(self) -> None:
+        self.fx.setup_admin()
+        first = self.fx.create_alarm(label="First", slug="first-alarm")
+        second = self.fx.create_alarm(label="Second", slug="second-alarm")
+        now = time.time()
+        self.fx.store.set_next_fire(first["id"], now + 300)
+        self.fx.store.set_next_fire(second["id"], now + 900)
+        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
+        self.assertEqual(self._location(), "/first-alarm")
+        self.fx.store.set_next_fire(first["id"], now + 1800)
+        self.assertEqual(self._location(), "/second-alarm")
+
+    def test_all_link_skips_disabled_alarms(self) -> None:
+        self.fx.setup_admin()
+        disabled = self.fx.create_alarm(label="Disabled", slug="disabled-alarm")
+        enabled = self.fx.create_alarm(label="Enabled", slug="enabled-alarm")
+        now = time.time()
+        self.fx.store.set_next_fire(disabled["id"], now + 100)
+        self.fx.store.set_next_fire(enabled["id"], now + 200)
+        self.fx.store.set_alarm_enabled(disabled["id"], False, None)
+        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
+        self.assertEqual(self._location(), "/enabled-alarm")
+
+    def test_all_link_qr_and_expiry(self) -> None:
+        self.fx.setup_admin()
+        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
+        status, body, _ = self.fx.client.request("GET", "/qr/all.svg")
         self.assertEqual(status, 200)
         self.assertIn("<svg", body)
-
-        import urllib.error
-        import urllib.request
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, *args, **kwargs):
-                return None
-        opener = urllib.request.build_opener(NoRedirect)
-        try:
-            opener.open(self.fx.client.base + "/all", timeout=5)
-            self.fail("expected a redirect")
-        except urllib.error.HTTPError as exc:
-            self.assertEqual(exc.code, 302)
-            self.assertEqual(exc.headers.get("Location"), "/challenge-link")
-            exc.close()
-
-    def test_all_link_uses_recent_ring_even_after_alarm_disabled(self) -> None:
-        self.fx.setup_admin()
-        user = self.fx.add_user("Ada")
-        alarm = self.fx.create_alarm(
-            mode="challenge", participants=[user["id"]],
-            challenge_type="math", slug="recent-disabled",
-        )
-        event = self.fx.ring(alarm["id"])
-        self.fx.engine.stop_event(event["id"], "test finished")
-        self.fx.store.set_alarm_enabled(alarm["id"], False, None)
-        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
-
-        import urllib.error
-        import urllib.request
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, *args, **kwargs):
-                return None
-        opener = urllib.request.build_opener(NoRedirect)
-        try:
-            opener.open(self.fx.client.base + "/all", timeout=5)
-            self.fail("expected a redirect")
-        except urllib.error.HTTPError as exc:
-            self.assertEqual(exc.code, 302)
-            self.assertEqual(exc.headers.get("Location"), "/recent-disabled")
-            exc.close()
-
-    def test_all_link_uses_latest_of_multiple_rings(self) -> None:
-        self.fx.setup_admin()
-        user = self.fx.add_user("Ada")
-        first = self.fx.create_alarm(
-            mode="challenge", participants=[user["id"]],
-            challenge_type="math", slug="older-ring",
-        )
-        second = self.fx.create_alarm(
-            mode="challenge", participants=[user["id"]],
-            challenge_type="color", slug="newer-ring",
-        )
-        self.fx.ring(first["id"])
-        self.fx.ring(second["id"])
-        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
-
-        import urllib.error
-        import urllib.request
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, *args, **kwargs):
-                return None
-        opener = urllib.request.build_opener(NoRedirect)
-        try:
-            opener.open(self.fx.client.base + "/all", timeout=5)
-            self.fail("expected a redirect")
-        except urllib.error.HTTPError as exc:
-            self.assertEqual(exc.code, 302)
-            self.assertEqual(exc.headers.get("Location"), "/newer-ring")
-            exc.close()
-
-    def test_all_link_expiry(self) -> None:
-        self.fx.setup_admin()
-        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
         self.fx.client.request(
             "PUT", "/api/links/all", {"slug": "all", "expires_at": time.time() - 1}
         )
@@ -1638,7 +1568,6 @@ class AlarmEditRegressionTests(ApiBase):
             "completion_mode": "all",
             "target_count": 1,
             "music_id": None,
-            "calendar_id": None,
             "slug": "edit-plan",
         }
         status, data, _ = self.fx.client.request(

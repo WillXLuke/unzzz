@@ -35,7 +35,6 @@ class MigrationV5Tests(unittest.TestCase):
             "question_source": "auto",
             "challenge_type": "math",
             "music_id": None,
-            "calendar_id": None,
             "slug": "old-standard",
         })
         with store.conn:

@@ -56,7 +56,7 @@
       <button class="btn primary wide" type="submit">Create password</button>
     </form>
 
-    <p class="auth-foot">unzzz v<span id="auth-version">2.3.3</span> · keep this on your local network</p>
+    <p class="auth-foot">unzzz v<span id="auth-version">2.3.4</span> · keep this on your local network</p>
   </main>
 </div>
 
@@ -69,7 +69,6 @@
       <button class="tab" data-view="challenges" type="button">Challenges</button>
       <button class="tab" data-view="links" type="button">Links</button>
       <button class="tab" data-view="music" type="button">Music</button>
-      <button class="tab" data-view="special" type="button">Special days</button>
       <button class="tab" data-view="history" type="button">History</button>
       <button class="tab" data-view="settings" type="button">Settings</button>
     </nav>
@@ -261,36 +260,6 @@
       </div>
     </section>
 
-    <section class="view" id="view-special" hidden>
-      <div class="section-head">
-        <h2>Special days</h2>
-        <span class="muted" id="calendar-count"></span>
-      </div>
-      <p class="section-lede">Import a year of working and rest dates for school terms, shift patterns or any non-standard week. A date marked “work” rings even on a Sunday; a date marked “holiday” stays quiet even on a Monday.</p>
-
-      <form id="calendar-form" class="panel stack" autocomplete="off">
-        <div class="form-grid">
-          <label class="field">
-            <span>Calendar name</span>
-            <input id="calendar-name" maxlength="40" placeholder="e.g. Work calendar 2026" required>
-          </label>
-          <label class="field">
-            <span>CSV file</span>
-            <input id="calendar-file" type="file" accept=".csv,text/csv" required>
-          </label>
-        </div>
-        <p class="hint">Format: date,type,note — for example 2026-01-01,holiday,New Year or 2026-01-04,work,Make-up workday. Use work/working for a working day and holiday/rest for a rest day. A header row is optional.</p>
-        <p class="form-error" id="calendar-error" role="alert"></p>
-        <div class="row"><button class="btn primary" type="submit" id="calendar-upload">Import calendar</button></div>
-      </form>
-
-      <div class="calendar-list" id="calendar-list"></div>
-      <div class="empty" id="calendar-empty" hidden>
-        <h3>No special-day calendars</h3>
-        <p>Import a CSV, then select it in an alarm’s Repeat section.</p>
-      </div>
-    </section>
-
     <section class="view" id="view-history" hidden>
       <div class="section-head">
         <h2>Recent alarms</h2>
@@ -411,7 +380,7 @@
   </main>
 
   <footer class="foot">
-    unzzz <span id="version">2.3.3</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
+    unzzz <span id="version">2.3.4</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
   </footer>
 
   <div id="ring-dock" class="ring-dock" role="alert" aria-live="assertive" hidden></div>
@@ -537,20 +506,13 @@
       </fieldset>
 
       <fieldset class="field">
-        <legend>Sound &amp; special days</legend>
+        <legend>Sound</legend>
         <div class="form-grid">
           <label class="field">
             <span>Alarm music</span>
             <select id="alarm-music">
               <option value="">Built-in beep</option>
             </select>
-          </label>
-          <label class="field" id="calendar-field">
-            <span>Special-days calendar</span>
-            <select id="alarm-calendar">
-              <option value="">None — use the week pattern</option>
-            </select>
-            <small class="hint">Overrides weekdays for dates in the calendar.</small>
           </label>
         </div>
         <label class="checkline">

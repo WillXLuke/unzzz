@@ -906,8 +906,8 @@ fieldset.field > legend { padding: 0 7px; margin-left: -7px; }
 .answer-text { font-family: var(--mono); color: var(--accent); overflow-wrap: anywhere; }
 .form-error:empty { display: none; }
 
-.music-list, .calendar-list { list-style: none; margin: 20px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.music-item, .calendar-item {
+.music-list { list-style: none; margin: 20px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.music-item {
   display: flex;
   align-items: center;
   gap: 15px;
@@ -917,12 +917,10 @@ fieldset.field > legend { padding: 0 7px; margin-left: -7px; }
   border-radius: 14px;
   background: var(--panel);
 }
-.music-item .track-info, .calendar-item .calendar-info { flex: 1; min-width: 180px; }
-.music-item .track-name, .calendar-item .calendar-name { font-weight: 650; font-size: 14px; }
-.music-item .track-meta, .calendar-item .calendar-meta { color: var(--faint); font-size: 11.5px; font-family: var(--mono); margin-top: 3px; }
+.music-item .track-info { flex: 1; min-width: 180px; }
+.music-item .track-name { font-weight: 650; font-size: 14px; }
+.music-item .track-meta { color: var(--faint); font-size: 11.5px; font-family: var(--mono); margin-top: 3px; }
 .music-item audio { height: 34px; max-width: 250px; }
-.calendar-counts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 7px; }
-.calendar-counts .badge { font-size: 10px; }
 code {
   font-family: var(--mono);
   font-size: 0.92em;
@@ -937,7 +935,7 @@ code {
   .tab { flex: 0 0 auto; }
 }
 @media (max-width: 620px) {
-  .music-item, .calendar-item { align-items: flex-start; }
+  .music-item { align-items: flex-start; }
   .music-item audio { width: 100%; max-width: none; }
   .question-wrap .table-wrap { overflow-x: auto; }
 }
@@ -1154,6 +1152,13 @@ code {
   letter-spacing: 0.01em; text-align: center;
 }
 .hold-wrap, .dice-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.hold-wrap { touch-action: none; }
+.hold-wrap .btn, .hold-ring {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
 .hold-ring {
   width: 92px; height: 92px; border-radius: 50%;
   display: grid; place-items: center;
@@ -1162,7 +1167,17 @@ code {
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .hold-ring.holding { border-color: var(--accent); box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 18%, transparent); }
-.dice-face { font-size: 74px; line-height: 1; min-height: 82px; display: grid; place-items: center; }
+.dice-face {
+  width: 108px; height: 108px;
+  display: grid; place-items: center;
+  border-radius: 20px;
+  background: #f7f3e8;
+  color: #121712;
+  border: 2px solid #d8d2c2;
+  box-shadow: inset 0 -5px 0 rgba(0,0,0,0.08), 0 10px 22px rgba(0,0,0,0.28);
+  touch-action: manipulation;
+}
+.dice-number { font-size: 58px; font-weight: 850; line-height: 1; font-variant-numeric: tabular-nums; }
 .dice-face.rolling { animation: dice-pop 0.5s ease; }
 .dice-target { font-size: 16px; }
 .dice-target strong { font-size: 28px; color: var(--accent); }

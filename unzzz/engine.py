@@ -81,7 +81,6 @@ class Engine:
         self.lock = threading.RLock()
         self._stop = threading.Event()
         self._ticker: threading.Thread | None = None
-        self._calendar_cache: dict[int, dict[str, str]] = {}
         tz_name = store.get_setting("timezone") or detect_system_timezone()
         self._tz_name = tz_name
         self._tz = load_timezone(tz_name)
@@ -158,19 +157,6 @@ class Engine:
             float(stopped) + self.link_retention_minutes * 60
         )
 
-    def calendar_map(self, calendar_id: int | None) -> dict[str, str]:
-        if not calendar_id:
-            return {}
-        calendar_id = int(calendar_id)
-        cached = self._calendar_cache.get(calendar_id)
-        if cached is None:
-            cached = self.store.calendar_day_map(calendar_id)
-            self._calendar_cache[calendar_id] = cached
-        return cached
-
-    def invalidate_calendars(self) -> None:
-        self._calendar_cache.clear()
-
     def next_fire_for(self, alarm: dict, after_ts: float | None = None) -> float | None:
         return next_occurrence(
             hhmm=alarm["time"],
@@ -178,7 +164,6 @@ class Engine:
             once_date=alarm["once_date"],
             tz=self._tz,
             after_ts=after_ts,
-            calendar=self.calendar_map(alarm.get("calendar_id")),
         )
 
     def recompute_schedules(self) -> None:
@@ -190,7 +175,7 @@ class Engine:
             self.store.set_next_fire(alarm["id"], nf)
             if nf is None:
                 log.warning(
-                    "alarm %s has no future active day with its calendar", alarm["id"]
+                    "alarm %s has no future active day", alarm["id"]
                 )
 
     def start(self) -> None:
@@ -996,10 +981,6 @@ class Engine:
         participants = self.store.alarm_participants(alarm["id"])
         nf = alarm.get("next_fire")
         music_name = self.music_name(alarm.get("music_id"))
-        calendar = (
-            self.store.get_calendar(alarm["calendar_id"])
-            if alarm.get("calendar_id") else None
-        )
         target = alarm.get("target_count", 1)
         if alarm.get("completion_mode", "all") == "all":
             target = max(1, len(participants))
@@ -1036,8 +1017,6 @@ class Engine:
             "link_expires_at": alarm.get("link_expires_at"),
             "music_id": alarm.get("music_id"),
             "music_name": music_name,
-            "calendar_id": alarm.get("calendar_id"),
-            "calendar_name": calendar["name"] if calendar else None,
             "participants": [
                 {"id": u["id"], "name": u["name"], "active": bool(u["active"])}
                 for u in participants

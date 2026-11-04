@@ -156,7 +156,7 @@
   }
 
   function setView(view) {
-    const views = ["alarms", "users", "challenges", "links", "music", "special", "history", "settings"];
+    const views = ["alarms", "users", "challenges", "links", "music", "history", "settings"];
     if (!views.includes(view)) view = "alarms";
     S.view = view;
     localStorage.setItem("unzzz-view", view);
@@ -185,7 +185,7 @@
     $("#screen-auth").hidden = false;
     $("#login-form").hidden = mode !== "login";
     $("#setup-form").hidden = mode !== "setup";
-    $("#auth-version").textContent = "2.3.3";
+    $("#auth-version").textContent = "2.3.4";
     $("#login-error").textContent = "";
     $("#setup-error").textContent = "";
     setTimeout(() => {
@@ -277,7 +277,6 @@
     renderQuestions(data);
     renderLinks(data);
     renderMusic(data);
-    renderCalendars(data);
     renderHistory(data);
     renderSettings(data);
     renderRingDock(data);
@@ -434,7 +433,6 @@
       if (alarm.skip_next) extras.push("Next ring skipped");
       if (alarm.muted) extras.push("Muted — no sound");
       if (alarm.music_name) extras.push(I18N()?.t("card.music", { name: alarm.music_name }) || `Music · ${alarm.music_name}`);
-      if (alarm.calendar_name) extras.push(I18N()?.t("card.calendar", { name: alarm.calendar_name }) || `Special days · ${alarm.calendar_name}`);
       return `
         <article class="alarm-card${alarm.enabled ? "" : " off"}${ringing ? " ringing" : ""}">
           <div class="alarm-top">
@@ -544,12 +542,6 @@
     $("#slug-preview").textContent = preview;
   }
 
-  function updateCalendarVisibility() {
-    const once = $("#alarm-once").value;
-    const repeat = $$("#day-picker .day.on").length > 0;
-    $("#calendar-field").hidden = Boolean(once) || !repeat;
-  }
-
   function updateChallengeOptions() {
     const mode = $('input[name="mode"]:checked')?.value || "standard";
     const challenge = mode === "challenge";
@@ -603,7 +595,6 @@
     }
     updateParticipantCount();
     updateSlugPreview();
-    updateCalendarVisibility();
   }
 
   function openAlarmDialog(alarm) {
@@ -650,10 +641,6 @@
     $("#alarm-music").innerHTML = '<option value="">Built-in beep</option>' +
       (S.data?.music || []).map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("");
     $("#alarm-music").value = alarm?.music_id ? String(alarm.music_id) : "";
-
-    $("#alarm-calendar").innerHTML = '<option value="">None — use the week pattern</option>' +
-      (S.data?.calendars || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
-    $("#alarm-calendar").value = alarm?.calendar_id ? String(alarm.calendar_id) : "";
 
     updateChallengeOptions();
     if (typeof dialog.showModal === "function") dialog.showModal();
@@ -734,7 +721,6 @@
       challenge_plan: currentChallengePlan(),
       muted: $("#alarm-muted").checked,
       music_id: $("#alarm-music").value ? Number($("#alarm-music").value) : null,
-      calendar_id: once ? null : ($("#alarm-calendar").value ? Number($("#alarm-calendar").value) : null),
       slug,
     };
     const save = $("#alarm-save");
@@ -1226,72 +1212,6 @@
       link: item.url,
       qr_url: item.qr_url,
     });
-  }
-
-  // -------------------------------------------------------------- calendars
-  function renderCalendars(data) {
-    const calendars = data.calendars || [];
-    const sig = sigOf(calendars);
-    $("#calendar-count").textContent = `${calendars.length} calendar${calendars.length === 1 ? "" : "s"}`;
-    $("#calendar-empty").hidden = calendars.length > 0;
-    if (S.sig.calendars === sig) return;
-    S.sig.calendars = sig;
-    $("#calendar-list").innerHTML = calendars.map((cal) => `
-      <div class="calendar-item" data-id="${cal.id}">
-        <div class="calendar-info">
-          <div class="calendar-name">${esc(cal.name)}</div>
-          <div class="calendar-meta">${cal.first_date ? `${esc(cal.first_date)} → ${esc(cal.last_date)}` : "No dates"}</div>
-          <div class="calendar-counts">
-            <span class="badge on">${cal.working_days || 0} work</span>
-            <span class="badge">${cal.holiday_days || 0} holiday</span>
-            <span class="badge ${cal.alarms_using ? "warn" : ""}">${cal.alarms_using || 0} alarm${cal.alarms_using === 1 ? "" : "s"}</span>
-          </div>
-        </div>
-        <button class="btn danger tiny" type="button" data-calendar-action="delete">Delete</button>
-      </div>`).join("");
-  }
-
-  async function importCalendar(event) {
-    event.preventDefault();
-    const error = $("#calendar-error");
-    error.textContent = "";
-    const name = $("#calendar-name").value.trim();
-    const input = $("#calendar-file");
-    const file = input.files?.[0];
-    if (!name) { error.textContent = "Give the calendar a name."; return; }
-    if (!file) { error.textContent = "Choose a CSV file."; return; }
-    if (file.size > 2 * 1024 * 1024) { error.textContent = "That CSV is too large."; return; }
-    const button = $("#calendar-upload");
-    button.disabled = true;
-    button.textContent = "Importing…";
-    try {
-      const csv = await file.text();
-      await api("/api/calendars", { method: "POST", body: { name, csv } });
-      input.value = "";
-      $("#calendar-name").value = "";
-      await refresh();
-      toast("Calendar imported");
-    } catch (err) {
-      error.textContent = err.message;
-    } finally {
-      button.disabled = false;
-      button.textContent = "Import calendar";
-    }
-  }
-
-  async function deleteCalendar(id) {
-    const cal = (S.data?.calendars || []).find((c) => c.id === id);
-    const ok = await confirmAction({
-      title: `Delete ${cal ? cal.name : "this calendar"}?`,
-      text: "Alarms using it fall back to their weekday pattern and are rescheduled.",
-      confirmLabel: "Delete",
-    });
-    if (!ok) return;
-    try {
-      await api(`/api/calendars/${id}`, { method: "DELETE" });
-      await refresh();
-      toast("Calendar deleted");
-    } catch (err) { toast(err.message, "error"); }
   }
 
   // --------------------------------------------------------------- history
@@ -1841,12 +1761,6 @@
       if (btn.dataset.musicAction === "test") testServerMusic(id);
       else if (btn.dataset.musicAction === "stop") stopServerMusic(id);
       else if (btn.dataset.musicAction === "delete") deleteMusic(id);
-    });
-
-    $("#calendar-form").addEventListener("submit", importCalendar);
-    $("#calendar-list").addEventListener("click", (event) => {
-      const btn = event.target.closest("button[data-calendar-action]");
-      if (btn) deleteCalendar(Number(btn.closest(".calendar-item").dataset.id));
     });
 
     $("#refresh-history").addEventListener("click", refresh);
