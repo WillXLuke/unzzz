@@ -25,6 +25,7 @@ TYPE_LABELS = {
     "hold": "Button hold",
     "typing": "Typing test",
     "dice": "Roll dice",
+    "game2048": "2048",
 }
 COLORS = [
     {"key": "red", "name": "Red", "hex": "#ff5c5c"},
@@ -174,6 +175,18 @@ def _dice() -> dict:
     }
 
 
+def _game2048() -> dict:
+    target = 128
+    return {
+        "challenge_type": "game2048",
+        "answer_type": "game",
+        "question": f"Reach the {target} tile in 2048.",
+        "answer": str(target),
+        "payload": {"target": target, "size": 4},
+        "question_id": None,
+    }
+
+
 def generate_challenge(
     kind: str,
     difficulty: str = "normal",
@@ -205,6 +218,8 @@ def generate_challenge(
         return _typing()
     if kind == "dice":
         return _dice()
+    if kind == "game2048":
+        return _game2048()
     return _math(difficulty)
 
 
@@ -244,6 +259,8 @@ def check_answer(challenge_type: str, expected: str, raw: Any) -> bool:
             return int(raw) == int(expected)
         except (TypeError, ValueError):
             return False
+    if kind == "game2048":
+        return str(raw).strip() == str(expected).strip()
     if kind == "pattern":
         if not isinstance(raw, list):
             return False

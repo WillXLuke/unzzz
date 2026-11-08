@@ -792,6 +792,9 @@ class Engine:
                 int(raw_answer)
             except (TypeError, ValueError):
                 raise EngineError("Roll the dice first", 400)
+        elif ctype == "game2048":
+            if str(raw_answer).strip() != "128":
+                raise EngineError("Reach the 128 tile first", 400)
         else:
             raise EngineError("Unknown challenge type", 400)
 

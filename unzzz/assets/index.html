@@ -56,7 +56,7 @@
       <button class="btn primary wide" type="submit">Create password</button>
     </form>
 
-    <p class="auth-foot">unzzz v<span id="auth-version">2.3.4</span> · keep this on your local network</p>
+    <p class="auth-foot">unzzz v<span id="auth-version">2.3.5</span> · keep this on your local network</p>
   </main>
 </div>
 
@@ -175,10 +175,14 @@
             <input id="question-text" maxlength="300" placeholder="e.g. What is the name of our cat?" required>
           </label>
         </div>
-        <label class="field" id="choice-options-field" hidden>
-          <span>Options <em class="muted">(one per line, 2–6)</em></span>
-          <textarea id="question-options" rows="4" placeholder="Red&#10;Blue&#10;Green&#10;Yellow"></textarea>
-        </label>
+        <div class="field" id="choice-options-field" hidden>
+          <span>Options <em class="muted">(2–6)</em></span>
+          <div class="choice-option-editor" id="question-option-list"></div>
+          <div class="row">
+            <button class="btn ghost tiny" type="button" id="question-option-add">+ Add option</button>
+          </div>
+          <small class="hint">Add, edit or remove each choice. The correct answer below must match one option.</small>
+        </div>
         <label class="field">
           <span id="answer-label">Answer</span>
           <input id="question-answer" maxlength="200" placeholder="e.g. Mochi" required>
@@ -380,7 +384,7 @@
   </main>
 
   <footer class="foot">
-    unzzz <span id="version">2.3.4</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
+    unzzz <span id="version">2.3.5</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
   </footer>
 
   <div id="ring-dock" class="ring-dock" role="alert" aria-live="assertive" hidden></div>
@@ -462,6 +466,7 @@
                 <option value="hold">Button hold</option>
                 <option value="typing">Typing test</option>
                 <option value="dice">Roll dice</option>
+                <option value="game2048">2048</option>
               </select>
               <small class="hint" id="challenge-type-hint">Arithmetic generated per person.</small>
             </label>

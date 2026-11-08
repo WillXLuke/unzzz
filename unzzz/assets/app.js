@@ -185,7 +185,7 @@
     $("#screen-auth").hidden = false;
     $("#login-form").hidden = mode !== "login";
     $("#setup-form").hidden = mode !== "setup";
-    $("#auth-version").textContent = "2.3.4";
+    $("#auth-version").textContent = "2.3.5";
     $("#login-error").textContent = "";
     $("#setup-error").textContent = "";
     setTimeout(() => {
@@ -315,6 +315,7 @@
     ["hold", "Button hold"],
     ["typing", "Typing test"],
     ["dice", "Roll dice"],
+    ["game2048", "2048"],
   ];
 
   function planValueToDescriptor(value) {
@@ -864,9 +865,59 @@
     }).join("");
   }
 
+  function questionOptionInputs() {
+    return $$("#question-option-list .option-input");
+  }
+
+  function updateQuestionOptionControls() {
+    const count = questionOptionInputs().length;
+    const add = $("#question-option-add");
+    if (add) add.disabled = count >= 6;
+    $$("#question-option-list [data-remove-option]").forEach((button) => {
+      button.disabled = count <= 2;
+    });
+  }
+
+  function renderQuestionOptions(options = []) {
+    const values = options.length ? options : ["", ""];
+    $("#question-option-list").innerHTML = values.map((value, index) => `
+      <div class="option-editor-row" data-option-index="${index}">
+        <span class="option-letter">${String.fromCharCode(65 + index)}</span>
+        <input class="option-input" maxlength="80" value="${esc(value)}" placeholder="Option ${index + 1}" autocomplete="off">
+        <button class="btn danger tiny" type="button" data-remove-option>Remove</button>
+      </div>`).join("");
+    updateQuestionOptionControls();
+  }
+
+  function addQuestionOption() {
+    const inputs = questionOptionInputs();
+    if (inputs.length >= 6) return;
+    const values = inputs.map((input) => input.value);
+    values.push("");
+    renderQuestionOptions(values);
+    questionOptionInputs()[questionOptionInputs().length - 1]?.focus();
+  }
+
+  function removeQuestionOption(button) {
+    const row = button.closest("[data-option-index]");
+    if (!row || questionOptionInputs().length <= 2) return;
+    row.remove();
+    $$("#question-option-list [data-option-index]").forEach((item, index) => {
+      item.dataset.optionIndex = String(index);
+      const letter = item.querySelector(".option-letter");
+      if (letter) letter.textContent = String.fromCharCode(65 + index);
+    });
+    updateQuestionOptionControls();
+  }
+
+  function currentQuestionOptions() {
+    return questionOptionInputs().map((input) => input.value.trim());
+  }
+
   function updateQuestionKind() {
     const choice = $("#question-kind").value === "choice";
     $("#choice-options-field").hidden = !choice;
+    if (choice && !questionOptionInputs().length) renderQuestionOptions([]);
     $("#answer-label").textContent = choice ? "Correct answer" : "Answer";
     $("#answer-hint").textContent = choice
       ? "Must exactly match one of the options above."
@@ -878,7 +929,7 @@
     $("#question-id").value = "";
     $("#question-kind").value = "text";
     $("#question-text").value = "";
-    $("#question-options").value = "";
+    renderQuestionOptions([]);
     $("#question-answer").value = "";
     $("#question-error").textContent = "";
     $("#question-save").textContent = "Add question";
@@ -893,11 +944,15 @@
     const kind = $("#question-kind").value;
     const question = $("#question-text").value.trim();
     const answer = $("#question-answer").value.trim();
-    const options = $("#question-options").value.split("\n").map((x) => x.trim()).filter(Boolean);
+    const options = currentQuestionOptions();
     if (!question || !answer) { error.textContent = "A question and an answer are required."; return; }
     if (kind === "choice") {
-      if (options.length < 2 || options.length > 6) {
-        error.textContent = "Multiple choice needs 2–6 options, one per line.";
+      if (options.length < 2 || options.length > 6 || options.some((option) => !option)) {
+        error.textContent = "Multiple choice needs 2–6 non-empty options.";
+        return;
+      }
+      if (new Set(options.map((option) => option.toLowerCase())).size !== options.length) {
+        error.textContent = "Multiple-choice options must be unique.";
         return;
       }
       if (!options.includes(answer)) {
@@ -964,7 +1019,7 @@
       $("#question-id").value = String(id);
       $("#question-kind").value = item.kind || "text";
       $("#question-text").value = item.question;
-      $("#question-options").value = (item.options || []).join("\n");
+      renderQuestionOptions(item.options || []);
       $("#question-answer").value = item.answer;
       $("#question-save").textContent = "Save question";
       $("#question-cancel").hidden = false;
@@ -1744,6 +1799,11 @@
     $("#link-edit-delete").addEventListener("click", deleteAllLink);
     $$("[data-close-link-edit]").forEach((btn) => btn.addEventListener("click", closeLinkEditor));
     $("#question-form").addEventListener("submit", saveQuestion);
+    $("#question-option-add").addEventListener("click", addQuestionOption);
+    $("#question-option-list").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-remove-option]");
+      if (button) removeQuestionOption(button);
+    });
     $("#question-import-form").addEventListener("submit", importQuestions);
     $("#question-cancel").addEventListener("click", resetQuestionForm);
     $("#question-kind").addEventListener("change", updateQuestionKind);

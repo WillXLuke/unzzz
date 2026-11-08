@@ -1367,6 +1367,21 @@ class AllInOneLinkTests(ApiBase):
         self.fx.store.set_next_fire(first["id"], now + 1800)
         self.assertEqual(self._location(), "/second-alarm")
 
+    def test_all_link_prefers_active_alarm_over_schedule(self) -> None:
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        active = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]],
+            challenge_type="math", slug="active-ring",
+        )
+        upcoming = self.fx.create_alarm(label="Upcoming", slug="upcoming-ring")
+        now = time.time()
+        self.fx.store.set_next_fire(active["id"], now + 1800)
+        self.fx.store.set_next_fire(upcoming["id"], now + 60)
+        self.fx.ring(active["id"])
+        self.fx.client.request("POST", "/api/links/all", {"slug": "all"})
+        self.assertEqual(self._location(), "/active-ring")
+
     def test_all_link_skips_disabled_alarms(self) -> None:
         self.fx.setup_admin()
         disabled = self.fx.create_alarm(label="Disabled", slug="disabled-alarm")
@@ -1519,6 +1534,11 @@ class NewChallengeTypeApiTests(ApiBase):
             challenge = self.fx.store.get_challenge_by_token(token)
             self.assertEqual(int(challenge["answer"]), target)
         result = self.fx.answer(token, str(target))
+        self.assertTrue(result["all_done"])
+
+    def test_2048_target(self) -> None:
+        token = self._single_challenge("game2048")
+        result = self.fx.answer(token, "128")
         self.assertTrue(result["all_done"])
 
     def test_six_by_six_pattern(self) -> None:

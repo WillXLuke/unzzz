@@ -122,3 +122,12 @@ class NewChallengeTypeTests(unittest.TestCase):
         self.assertIn(target, range(1, 7))
         self.assertTrue(check_answer("dice", spec["answer"], str(target)))
         self.assertFalse(check_answer("dice", spec["answer"], str(target % 6 + 1)))
+
+
+class Game2048Tests(unittest.TestCase):
+    def test_generation_and_check(self) -> None:
+        spec = generate_challenge("game2048")
+        self.assertEqual(spec["challenge_type"], "game2048")
+        self.assertEqual(spec["payload"]["target"], 128)
+        self.assertTrue(check_answer("game2048", spec["answer"], "128"))
+        self.assertFalse(check_answer("game2048", spec["answer"], "64"))

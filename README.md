@@ -27,9 +27,10 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   is not limited to six). Each selected user gets a private shortlink and a
   challenge. The alarm stops when **everyone selected** answers, or when a
   fixed number of correct answers is reached.
-- **Nine challenge types** — generated maths, text answer, multiple choice,
+- **Ten challenge types** — generated maths, text answer, multiple choice,
   random multiple choice, colour match, pattern paint (3×3, 6×6 or 9×9), a
-  five-second button hold, an exact typing test, and a five-try dice roll.
+  five-second button hold, an exact typing test, a five-try dice roll and a
+  2048 mini-game that passes at the 128 tile.
 - **Ordered challenge plans** — when a person has to pass more than one
   challenge, choose a different type for each step and reorder them with
   ↑ / ↓ arrows. Every selected person follows the same order.
@@ -37,8 +38,9 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   from the top-right language menu. The choice is remembered per browser;
   user-written questions, choices and alarm labels are shown as entered.
 - **Question bank** — the **Challenges** tab stores text questions and
-  multiple-choice questions with 2–6 options. Text answers are compared
-  ignoring case and extra whitespace; choice answers must match an option.
+  multiple-choice questions with 2–6 options. Options can be added, edited or
+  removed individually in the panel. Text answers ignore case and extra
+  whitespace; choice answers must match an option.
 - **Skip the next ring** — every alarm card has **Skip next**. The next
   scheduled occurrence is recorded as *skipped* and beyond it the normal
   schedule continues. Press **Undo skip** to cancel.
@@ -53,9 +55,9 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   Expiration defaults to **six hours after the alarm is disabled or removed**;
   a running/stopped recurring alarm keeps its link, and deleted-alarm links
   stay valid for six hours before returning 410.
-- **All-in-one link** — create one shortcut that always opens the next
-  scheduled alarm, checked again on every access, so multiple enabled alarms
-  only need one URL/QR.
+- **All-in-one link** — create one shortcut that opens whichever alarm is
+  ringing now, otherwise the next scheduled alarm. It is recalculated on every
+  access, so multiple alarms only need one URL/QR.
 - **Music** — upload WAV/MP3/OGG/FLAC/M4A/AAC/Opus tracks and choose one per
   alarm. The built-in two-tone beep remains the default. Each track has
   **Test on server** / **Stop** buttons for playback through the server's
@@ -160,10 +162,10 @@ Download or build the package matching the machine:
 
 ```bash
 # 64-bit PC / server
-sudo apt install ./unzzz_2.3.4_amd64.deb
+sudo apt install ./unzzz_2.3.5_amd64.deb
 
 # 64-bit Raspberry Pi OS
-sudo apt install ./unzzz_2.3.4_arm64.deb
+sudo apt install ./unzzz_2.3.5_arm64.deb
 ```
 
 The package:
@@ -180,8 +182,8 @@ from a checkout with:
 
 ```bash
 ./packaging/build-deb.sh
-# dist/unzzz_2.3.4_amd64.deb
-# dist/unzzz_2.3.4_arm64.deb
+# dist/unzzz_2.3.5_amd64.deb
+# dist/unzzz_2.3.5_arm64.deb
 ```
 
 ## Raspberry Pi install
@@ -248,7 +250,7 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
 - **Alarm editor** — label, time, repeat days or one-time date, standard vs
   challenge, 1–6 selected users, **challenge type** (maths, text, multiple
   choice, random multiple choice, colour match, pattern paint 3×3/6×6/9×9,
-  button hold, typing test, dice), **challenges per person** (1–10) and an
+  button hold, typing test, dice, 2048), **challenges per person** (1–10) and an
   ordered plan when that count is above one, finish condition (all or fixed
   number), public shortlink for challenge alarms, music, muted sound, snooze
   limits, give-up limit. Links are managed in the **Links** tab.
@@ -259,7 +261,8 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
   skipped when an alarm rings.
 - **Links** — enabled alarm links plus the all-in-one shortcut. Each item has
   **Modify**, **QR** and **Open link**. Modify edits the slug and optional
-  expiration. The all-in-one shortcut opens the next scheduled alarm.
+  expiration. The all-in-one shortcut opens the ringing alarm, otherwise the
+  next scheduled alarm.
 - **Challenges** — add/edit/delete text or multiple-choice questions. Choice
   questions need 2–6 unique options plus the correct option. Import a CSV with
   `question,option a,option b,option c,option d,correct answer`. Alarms using
@@ -309,7 +312,7 @@ The built-in beep is always available as “Built-in beep”.
 
 ## Challenge types
 
-The alarm editor offers nine types:
+The alarm editor offers ten types:
 
 | Type | What the phone shows | Source |
 |---|---|---|
@@ -322,6 +325,7 @@ The alarm editor offers nine types:
 | **Button hold** | hold an on-screen button for five seconds | generated per person |
 | **Typing test** | type a generated phrase exactly; copy/paste blocked | generated per person |
 | **Roll dice** | roll a die and match the target; the fifth try is guaranteed | generated per person |
+| **2048** | play a 4×4 2048 board and reach the 128 tile | generated per person |
 
 Wrong answers issue a fresh challenge (and, for generated types, a new
 pattern/colour pair). **Challenges per person** controls how many correct
@@ -357,9 +361,9 @@ http://192.168.5.19:8888/alarmmorning
   removed**. A custom future expiration is preserved across later changes.
   Deleting an alarm retires its link after six hours (the link shows a removed
   notice until then, then returns 410).
-- The all-in-one link checks the next enabled alarm on every access and
-  redirects to the alarm with the earliest future `next_fire`. If no future
-  schedule remains, it falls back to the currently active event.
+- The all-in-one link is recalculated on every access. It first redirects to
+  any ringing/snoozed alarm; if none is active, it redirects to the enabled
+  alarm with the earliest future `next_fire`.
 - After an event stops, its private challenge links and the shared page's
   last-result view expire after **Challenge link lifetime after stop**
   (Settings, default 30 minutes, `0` = immediately).

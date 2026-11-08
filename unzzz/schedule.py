@@ -23,7 +23,7 @@ DIFFICULTIES = ("easy", "normal", "hard")
 QUESTION_SOURCES = ("auto", "custom")
 CHALLENGE_TYPES = (
     "math", "text", "choice", "random_choice", "color", "pattern",
-    "hold", "typing", "dice",
+    "hold", "typing", "dice", "game2048",
 )
 CUSTOM_TYPES = ("text", "choice", "random_choice")
 PATTERN_SIZES = (3, 6, 9)

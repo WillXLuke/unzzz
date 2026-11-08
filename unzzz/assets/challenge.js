@@ -205,6 +205,26 @@
         ${feedback}
       </div>`;
     }
+    if (type === "game2048") {
+      return `<div class="question-box" id="answer-area">
+        <div class="g2048-wrap">
+          <div class="g2048-head">
+            <span>Score <strong id="g2048-score">0</strong></span>
+            <span class="muted small">Target: 128</span>
+          </div>
+          <div class="g2048-board" id="game2048-board" role="grid" aria-label="2048 board"></div>
+          <div class="row between">
+            <span class="muted small" id="g2048-status">Use arrow keys or swipe.</span>
+            <button class="btn ghost tiny" type="button" id="g2048-restart">Restart</button>
+          </div>
+        </div>
+        <form id="answer-form" autocomplete="off">
+          <input id="answer" type="hidden" value="">
+          <button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button>
+        </form>
+        ${feedback}
+      </div>`;
+    }
     const isText = type === "text";
     const inputAttrs = isText
       ? 'type="text" autocomplete="off" enterkeyhint="done" aria-label="Your answer" placeholder="Your answer"'
@@ -273,7 +293,9 @@
 
     // Ringing, not answered yet.
     resetSelection();
+    document.body.classList.toggle("hold-active", data.challenge_type === "hold");
     S.holdDone = false;
+    S.game2048 = null;
     S.diceRolled = false;
     const question = data.question;
     const finishText = data.required > 1
@@ -299,6 +321,8 @@
     if (holdButton) bindHold(holdButton);
     const diceButton = $("#dice-roll");
     if (diceButton) bindDice(diceButton, data);
+    const gameBoard = $("#game2048-board");
+    if (gameBoard) bind2048(gameBoard);
     const field = $("#answer");
     if (field) setTimeout(() => field.focus(), 40);
   }
@@ -388,19 +412,153 @@
 
   // Typing-test copy/paste protection. This is intentionally broad inside the
   // answer area so the phrase cannot be copied into the input.
-  for (const name of ["copy", "cut", "contextmenu"]) {
+  function bind2048(boardEl) {
+    const target = 128;
+    const spawn = () => {
+      const game = S.game2048;
+      if (!game) return false;
+      const empty = game.board
+        .map((value, index) => value === 0 ? index : -1)
+        .filter((index) => index >= 0);
+      if (!empty.length) return false;
+      game.board[empty[Math.floor(Math.random() * empty.length)]] =
+        Math.random() < 0.9 ? 2 : 4;
+      return true;
+    };
+    const hasMoves = () => {
+      const board = S.game2048.board;
+      if (board.some((value) => value === 0)) return true;
+      for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 4; col++) {
+          const index = row * 4 + col;
+          if (col < 3 && board[index] === board[index + 1]) return true;
+          if (row < 3 && board[index] === board[index + 4]) return true;
+        }
+      }
+      return false;
+    };
+    const render = () => {
+      const game = S.game2048;
+      boardEl.innerHTML = game.board.map((value) => {
+        const shown = value ? String(value) : "";
+        return `<div class="g2048-cell tile-${value || 0}" role="gridcell">${shown}</div>`;
+      }).join("");
+      const score = $("#g2048-score");
+      if (score) score.textContent = String(game.score);
+      const status = $("#g2048-status");
+      if (status) {
+        status.textContent = game.won
+          ? "128 reached — checking…"
+          : game.over ? "No moves left — restart." : "Use arrow keys or swipe.";
+      }
+    };
+    const start = () => {
+      S.game2048 = {
+        board: Array(16).fill(0), score: 0, won: false, over: false, move,
+      };
+      spawn();
+      spawn();
+      render();
+    };
+    const slide = (line) => {
+      const values = line.filter((value) => value);
+      const out = [];
+      let gained = 0;
+      for (let i = 0; i < values.length; i++) {
+        if (i + 1 < values.length && values[i] === values[i + 1]) {
+          const merged = values[i] * 2;
+          out.push(merged);
+          gained += merged;
+          i += 1;
+        } else {
+          out.push(values[i]);
+        }
+      }
+      while (out.length < 4) out.push(0);
+      return { out, gained };
+    };
+    const move = (direction) => {
+      const game = S.game2048;
+      if (!game || game.won || game.over) return;
+      const before = game.board.join(",");
+      let gained = 0;
+      for (let index = 0; index < 4; index++) {
+        let positions;
+        if (direction === "left") positions = [0, 1, 2, 3].map((c) => index * 4 + c);
+        else if (direction === "right") positions = [3, 2, 1, 0].map((c) => index * 4 + c);
+        else if (direction === "up") positions = [0, 1, 2, 3].map((r) => r * 4 + index);
+        else positions = [3, 2, 1, 0].map((r) => r * 4 + index);
+        const result = slide(positions.map((pos) => game.board[pos]));
+        gained += result.gained;
+        positions.forEach((pos, offset) => { game.board[pos] = result.out[offset]; });
+      }
+      if (game.board.join(",") === before) return;
+      game.score += gained;
+      spawn();
+      if (game.board.some((value) => value >= target)) {
+        game.won = true;
+        render();
+        const input = $("#answer");
+        if (input) input.value = "128";
+        setTimeout(() => $("#answer-form")?.requestSubmit(), 450);
+        return;
+      }
+      if (!hasMoves()) game.over = true;
+      render();
+    };
+    start();
+    const restart = $("#g2048-restart");
+    if (restart) restart.addEventListener("click", start);
+    let startPoint = null;
+    boardEl.addEventListener("pointerdown", (event) => {
+      startPoint = { x: event.clientX, y: event.clientY };
+      try { boardEl.setPointerCapture(event.pointerId); } catch (_err) { /* noop */ }
+    });
+    boardEl.addEventListener("pointerup", (event) => {
+      if (!startPoint) return;
+      const dx = event.clientX - startPoint.x;
+      const dy = event.clientY - startPoint.y;
+      startPoint = null;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+      move(Math.abs(dx) > Math.abs(dy)
+        ? (dx > 0 ? "right" : "left")
+        : (dy > 0 ? "down" : "up"));
+    });
+    boardEl.addEventListener("pointercancel", () => { startPoint = null; });
+    boardEl.addEventListener("contextmenu", (event) => event.preventDefault());
+  }
+
+  document.addEventListener("keydown", (event) => {
+    const game = S.game2048;
+    if (!game || !S.data || S.data.challenge_type !== "game2048" || S.data.answered) return;
+    const map = {
+      ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
+      a: "left", d: "right", w: "up", s: "down",
+    };
+    const direction = map[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    game.move(direction);
+  });
+
+  const holdActive = () => document.body.classList.contains("hold-active");
+  for (const name of ["copy", "cut", "contextmenu", "selectstart"]) {
     document.addEventListener(name, (event) => {
-      if (event.target.closest && event.target.closest("#answer-area")) {
+      const inAnswer = event.target.closest && event.target.closest("#answer-area");
+      if (holdActive() || inAnswer) {
         event.preventDefault();
       }
     });
   }
   document.addEventListener("paste", (event) => {
-    if (event.target.closest && event.target.closest("#answer-area")) {
+    const inAnswer = event.target.closest && event.target.closest("#answer-area");
+    if (holdActive() || inAnswer) {
       event.preventDefault();
       const feedback = $("#feedback");
       if (feedback) {
-        feedback.textContent = "Paste is disabled for typing tests.";
+        feedback.textContent = holdActive()
+          ? "Copy and paste are disabled for this challenge."
+          : "Paste is disabled for typing tests.";
         feedback.className = "feedback bad";
       }
     }
@@ -527,6 +685,14 @@
       value = input.value.trim();
       if (!value) {
         feedback.textContent = "Roll the die first.";
+        feedback.className = "feedback bad";
+        return;
+      }
+    } else if (type === "game2048") {
+      const input = $("#answer");
+      value = input.value.trim();
+      if (value !== "128") {
+        feedback.textContent = "Reach the 128 tile first.";
         feedback.className = "feedback bad";
         return;
       }

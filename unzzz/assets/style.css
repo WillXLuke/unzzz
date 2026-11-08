@@ -1186,3 +1186,61 @@ code {
   60% { transform: rotate(8deg) scale(1.1); }
   100% { transform: rotate(0) scale(1); opacity: 1; }
 }
+
+body.hold-active, body.hold-active * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+/* --------------------------------------------------------------- 2048 game */
+.g2048-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.g2048-head { display: flex; justify-content: space-between; width: min(330px, 88vw); font-size: 13px; }
+.g2048-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  width: min(330px, 88vw);
+  aspect-ratio: 1;
+  padding: 8px;
+  border-radius: 16px;
+  background: #151b16;
+  border: 1px solid var(--line-strong);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.g2048-cell {
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #0b100c;
+  color: #f2f5ef;
+  font-size: clamp(16px, 5vw, 30px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s, color 0.12s, transform 0.12s;
+}
+.g2048-cell.tile-2 { background: #e9e4d4; color: #30362e; }
+.g2048-cell.tile-4 { background: #d9d1b8; color: #30362e; }
+.g2048-cell.tile-8 { background: #e8a35c; color: #24180b; }
+.g2048-cell.tile-16 { background: #e48a49; color: #24180b; }
+.g2048-cell.tile-32 { background: #e06f56; color: #fff; }
+.g2048-cell.tile-64 { background: #d9534f; color: #fff; }
+.g2048-cell.tile-128 { background: #f3d45c; color: #211b07; box-shadow: 0 0 0 3px rgba(243,212,92,0.32); }
+.g2048-cell.tile-256 { background: #f0c43b; color: #211b07; }
+.g2048-cell.tile-512 { background: #eab72d; color: #211b07; }
+.g2048-cell.tile-1024 { background: #e3a90f; color: #211b07; }
+.g2048-cell.tile-2048 { background: #f5c400; color: #211b07; }
+
+/* ------------------------------------------------- multiple-choice options */
+.choice-option-editor { display: flex; flex-direction: column; gap: 7px; }
+.option-editor-row { display: flex; align-items: center; gap: 7px; }
+.option-letter {
+  width: 25px; height: 25px; flex: 0 0 auto;
+  display: inline-grid; place-items: center;
+  border-radius: 50%; background: var(--panel-2, #162019);
+  color: var(--muted); font-size: 11.5px; font-weight: 700;
+}
+.option-editor-row .option-input { flex: 1; min-width: 0; }

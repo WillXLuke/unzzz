@@ -1031,6 +1031,19 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"ok": True})
 
     def _all_link_target(self) -> str | None:
+        # An alarm that is ringing/snoozed right now wins over the schedule.
+        for event in self.app.store.active_events():
+            alarm_id = event.get("alarm_id")
+            if not alarm_id:
+                continue
+            alarm = self.app.store.get_alarm(int(alarm_id))
+            if (
+                alarm and alarm.get("slug")
+                and not self.app.engine.alarm_link_expired(alarm)
+            ):
+                return alarm["slug"]
+
+        # No active alarm: use the earliest future enabled alarm.
         now = time.time()
         upcoming = []
         for alarm in self.app.store.list_alarms():
@@ -1044,16 +1057,6 @@ class Handler(BaseHTTPRequestHandler):
             upcoming.append((float(next_fire), alarm["slug"]))
         if upcoming:
             return min(upcoming, key=lambda item: item[0])[1]
-
-        # No future schedule remains (for example a one-time alarm is ringing
-        # right now). Fall back to the active event rather than returning 404.
-        for event in self.app.store.active_events():
-            alarm_id = event.get("alarm_id")
-            if not alarm_id:
-                continue
-            alarm = self.app.store.get_alarm(int(alarm_id))
-            if alarm and alarm.get("slug") and not self.app.engine.alarm_link_expired(alarm):
-                return alarm["slug"]
         return None
 
     def qr_svg(self, match, body) -> None:
