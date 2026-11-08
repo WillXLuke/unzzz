@@ -3,8 +3,8 @@ Version: @VERSION@
 Section: misc
 Priority: optional
 Architecture: @ARCH@
-Depends: python3 (>= 3.9), adduser, alsa-utils
-Recommends: mpv
+Depends: python3 (>= 3.9), adduser, alsa-utils | pulseaudio-utils
+Recommends: mpv, pulseaudio-utils
 Maintainer: unzzz maintainers <unzzz@localhost>
 Installed-Size: @SIZE@
 Description: lightweight alarm clock with shared wake-up challenges

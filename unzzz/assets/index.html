@@ -56,7 +56,7 @@
       <button class="btn primary wide" type="submit">Create password</button>
     </form>
 
-    <p class="auth-foot">unzzz v<span id="auth-version">2.3.5</span> · keep this on your local network</p>
+    <p class="auth-foot">unzzz v<span id="auth-version">2.4.0</span> · keep this on your local network</p>
   </main>
 </div>
 
@@ -342,6 +342,15 @@
           </dl>
           <p class="muted small" id="volume-hint"></p>
           <label class="field">
+            <span>Audio backend</span>
+            <select id="setting-audio-backend">
+              <option value="auto">Auto (use the available system backend)</option>
+              <option value="alsa">ALSA</option>
+              <option value="pulse">PulseAudio / PipeWire</option>
+            </select>
+            <small class="hint">Choose ALSA or PulseAudio explicitly. The playback device list is filtered to the selected backend.</small>
+          </label>
+          <label class="field">
             <span>Playback device</span>
             <select id="setting-audio-device">
               <option value="">System default</option>
@@ -384,7 +393,7 @@
   </main>
 
   <footer class="foot">
-    unzzz <span id="version">2.3.5</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
+    unzzz <span id="version">2.4.0</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
   </footer>
 
   <div id="ring-dock" class="ring-dock" role="alert" aria-live="assertive" hidden></div>

@@ -934,6 +934,32 @@ class DeviceSettingsTests(ApiBase):
         self.assertEqual(state["settings"]["audio_device"], "alsa:default")
         self.assertEqual(state["audio"]["device"], "alsa:default")
 
+        status, data, _ = self.fx.client.request(
+            "POST",
+            "/api/settings",
+            {
+                "timezone": "UTC", "base_url": "", "audio_backend": "pulse",
+                "audio_device": "pulse:test-sink",
+            },
+        )
+        self.assertEqual(status, 200, data)
+        state = self.fx.state()
+        self.assertEqual(state["settings"]["audio_backend"], "pulse")
+        self.assertEqual(state["settings"]["audio_device"], "pulse:test-sink")
+        self.assertEqual(state["audio"]["preferred_backend"], "pulse")
+        _status, data, _ = self.fx.client.request("GET", "/api/audio/devices")
+        self.assertEqual(data["backend"], "pulse")
+
+        status, data, _ = self.fx.client.request(
+            "POST",
+            "/api/settings",
+            {
+                "timezone": "UTC", "base_url": "", "audio_backend": "alsa",
+                "audio_device": "pulse:test-sink",
+            },
+        )
+        self.assertEqual(status, 400)
+
 
 class TypedChallengeTests(ApiBase):
     def test_choice_challenge(self) -> None:

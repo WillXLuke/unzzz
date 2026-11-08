@@ -75,8 +75,10 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   working a configurable number of minutes after an alarm stops (default 30).
   The public alarm link itself follows the per-link expiration in the Links tab
   (default six hours after disable/removal).
-- **Playback devices** — the Settings tab discovers ALSA PCMs and PulseAudio
-  sinks and applies the selected device to aplay/mpv/paplay.
+- **ALSA or PulseAudio** — explicitly choose **Auto**, **ALSA** or
+  **PulseAudio/PipeWire** in Settings. The playback-device list is filtered to
+  the selected backend, and the same backend controls the player and the
+  volume mixer.
 - **Users** — add, rename, pause, delete up to 200 accounts; every alarm can
   select at most six.
 - **Lightweight** — stdlib only, ~30 MB RSS, SQLite WAL, one scheduler thread,
@@ -162,10 +164,10 @@ Download or build the package matching the machine:
 
 ```bash
 # 64-bit PC / server
-sudo apt install ./unzzz_2.3.5_amd64.deb
+sudo apt install ./unzzz_2.4.0_amd64.deb
 
 # 64-bit Raspberry Pi OS
-sudo apt install ./unzzz_2.3.5_arm64.deb
+sudo apt install ./unzzz_2.4.0_arm64.deb
 ```
 
 The package:
@@ -176,14 +178,14 @@ The package:
 - keeps data through upgrades and removal; even `purge` preserves
   `/var/lib/unzzz` (delete it yourself when you really want to erase it).
 
-For compressed music install `mpv` (`sudo apt install mpv`); WAV playback only
-needs `alsa-utils`, which the package depends on. Build both architectures
-from a checkout with:
+For compressed music install `mpv` (`sudo apt install mpv`). WAV playback
+needs `alsa-utils` (ALSA) or `pulseaudio-utils` (PulseAudio/PipeWire). Build
+both architectures from a checkout with:
 
 ```bash
 ./packaging/build-deb.sh
-# dist/unzzz_2.3.5_amd64.deb
-# dist/unzzz_2.3.5_arm64.deb
+# dist/unzzz_2.4.0_amd64.deb
+# dist/unzzz_2.4.0_arm64.deb
 ```
 
 ## Raspberry Pi install
@@ -196,6 +198,8 @@ fine on a Pi Zero 2 W. SSH in, update, and check audio **before** installing:
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y alsa-utils git
+# PulseAudio / PipeWire alternative:
+# sudo apt install -y pulseaudio-utils
 
 aplay -l
 speaker-test -t sine -f 440 -c 1 -l 1
@@ -301,10 +305,15 @@ The built-in beep is always available as “Built-in beep”.
   device as an alarm; **Stop** ends that test.
 - WAV → aplay (lightest) or another player.
 - MP3/OGG/FLAC/M4A/AAC/Opus → mpv/ffplay/paplay; install `mpv` on a Pi.
+- **Settings → Audio backend** selects Auto, ALSA or PulseAudio/PipeWire.
+  Changing it saves immediately and clears a device from the other backend.
 - Device selection is saved as soon as you change it and applies to:
   - **aplay** → `-D <alsa-pcm>` (`hw:` is routed through `plughw:`)
   - **paplay** → `--device=<pulse-sink>`
-  - **mpv** → `--audio-device=alsa/<pcm>` or `pulse/<sink>`
+  - **mpv** → `--audio-device=alsa/<pcm>` or `pulse/<sink>`; with no explicit
+    device it uses `--ao=alsa` or `--ao=pulse`
+- The backend also selects `amixer` (ALSA) or `pactl` (PulseAudio) for volume
+  save/restore.
 - The Settings test button shows the exact player error and works even when the
   current selection looks unavailable.
 - A custom `UNZZZ_AUDIO_CMD` player command controls its own device; the
@@ -484,9 +493,10 @@ sudo -u unzzz aplay -D plughw:CARD=Headphones,DEV=0 /var/lib/unzzz/beep.wav
 
 `hw:` devices are automatically sent through `plughw:` so the 22.05 kHz mono
 beep can be converted. A USB speaker sometimes needs one `speaker-test` to wake
-up. If you select a PulseAudio sink, remember that the system service runs as
-`unzzz` and may not share your desktop user's PulseAudio session; an ALSA PCM
-is the safer choice for a headless Pi.
+up. If you select PulseAudio, remember that the system service runs as `unzzz` and
+may not share your desktop user's PulseAudio session. For a headless Pi,
+ALSA is often simpler; for a desktop/PipeWire setup, select PulseAudio and
+install `pulseaudio-utils` (for `paplay`/`pactl`).
 
 **Uploaded music is silent.** WAV works with aplay; MP3/OGG/FLAC/M4A need
 `mpv`/`ffplay`/`paplay`. If `command -v mpv` prints nothing, compressed music
@@ -495,10 +505,10 @@ and use **Music → Test on server** / **Stop**. Only `aplay` + `amixer` is a
 valid WAV/beep setup, not a compressed-music setup.
 
 **Volume does not change.** Volume control needs `amixer` (alsa-utils) for ALSA
-or `pactl` (pulseaudio-utils/PipeWire) for PulseAudio. Settings shows the current
-volume and the backend in use; an unavailable current volume means no mixer was
-detected. For a PulseAudio sink, the system service may not share your desktop
-session; prefer an ALSA device on a headless Pi.
+or `pactl` (pulseaudio-utils/PipeWire) for PulseAudio. Select the matching
+**Audio backend** in Settings; the current volume and volume backend update
+from that choice. For PulseAudio, the system service may not share your desktop
+session; on a headless Pi, ALSA is often simpler.
 Some USB speakers expose controls such as `Playback Volume Playback Volume`
 instead of `Master`/`PCM`; unzzz discovers the available controls from
 `amixer -c <card> controls` and tries the playback-volume control first.
@@ -515,8 +525,9 @@ amixer -c 2 sget 'Playback Volume'
 alarm's shared `/<slug>` link remains for future rings.
 
 **Devices list is empty.** The panel lists `aplay -L` PCMs and PulseAudio
-sinks. On Lite with only ALSA, you should at least see `default`/`sysdefault`.
-If your DAC is missing, run `aplay -L` as the service user.
+sinks, filtered by the selected backend. On Lite with ALSA, you should at
+least see `default`/`sysdefault`; with PulseAudio, install
+`pulseaudio-utils` and check `pactl list short sinks` as the service user.
 
 **Links/QR point to `127.0.0.1`.** Open the panel through the Pi's LAN address,
 or set **Public base URL** in Settings.

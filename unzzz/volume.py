@@ -37,10 +37,14 @@ def _clamp(value: int | str | None, default: int = DEFAULT_TARGET) -> int:
 
 
 class VolumeController:
-    def __init__(self, device: str = "", target: int = DEFAULT_TARGET, store=None) -> None:
+    def __init__(
+        self, device: str = "", target: int = DEFAULT_TARGET, store=None,
+        backend: str = "auto",
+    ) -> None:
         self.device = (device or "").strip()
         self.target = _clamp(target)
         self.store = store
+        self.preferred_backend = backend if backend in ("auto", "alsa", "pulse") else "auto"
         self._lock = threading.RLock()
         self._saved: int | None = None
         self._active: set[int] = set()
@@ -50,6 +54,16 @@ class VolumeController:
         self._cache_at = 0.0
         self._error: str | None = None
         self.backend = "none"
+
+    def set_backend(self, backend: str) -> None:
+        with self._lock:
+            self.preferred_backend = (
+                backend if backend in ("auto", "alsa", "pulse") else "auto"
+            )
+            self._control = None
+            self._discovered = None
+            self._cache = None
+            self._cache_at = 0.0
 
     def set_device(self, device: str) -> None:
         with self._lock:
@@ -67,6 +81,8 @@ class VolumeController:
             self.backend = "pulse"
         elif self.device.startswith("alsa:"):
             self.backend = "alsa"
+        elif self.preferred_backend in ("alsa", "pulse"):
+            self.backend = self.preferred_backend
         elif shutil.which("amixer"):
             self.backend = "alsa"
         elif shutil.which("pactl"):

@@ -23,6 +23,7 @@
     settingsLoaded: false,
     devicesLoaded: false,
     deviceDirty: false,
+    audioBackendDirty: false,
     questionEditId: null,
     prevActive: null,
     toastTimer: null,
@@ -185,7 +186,7 @@
     $("#screen-auth").hidden = false;
     $("#login-form").hidden = mode !== "login";
     $("#setup-form").hidden = mode !== "setup";
-    $("#auth-version").textContent = "2.3.5";
+    $("#auth-version").textContent = "2.4.0";
     $("#login-error").textContent = "";
     $("#setup-error").textContent = "";
     setTimeout(() => {
@@ -1331,10 +1332,25 @@
     // than a disabled button.
     testButton.disabled = false;
     testButton.textContent = "Play test beep";
+    const backendSelect = $("#setting-audio-backend");
+    if (backendSelect && !S.audioBackendDirty) {
+      backendSelect.value = data.settings.audio_backend || "auto";
+    }
     const select = $("#setting-audio-device");
     if (S.devicesLoaded && !S.deviceDirty && select) {
       select.value = data.settings.audio_device || "";
     }
+  }
+
+  function selectedAudioBackend() {
+    return $("#setting-audio-backend")?.value || S.data?.settings?.audio_backend || "auto";
+  }
+
+  function filterAudioDevices(devices, backend) {
+    if (backend === "auto") return devices;
+    return devices.filter(
+      (device) => !device.value || device.value.startsWith(`${backend}:`)
+    );
   }
 
   async function loadAudioDevices(force = false) {
@@ -1347,13 +1363,14 @@
     try {
       const data = await api("/api/audio/devices");
       const select = $("#setting-audio-device");
+      const backend = selectedAudioBackend();
       const current = S.deviceDirty ? select.value : (data.current || S.data.settings.audio_device || "");
-      const devices = data.devices || [];
+      const devices = filterAudioDevices(data.devices || [], backend);
       if (current && !devices.some((d) => d.value === current)) {
-        devices.push({ value: current, label: `Custom · ${current}` });
+        devices.unshift({ value: "", label: "System default" });
       }
       select.innerHTML = devices.map((d) => `<option value="${esc(d.value)}">${esc(d.label)}</option>`).join("");
-      select.value = current;
+      select.value = devices.some((d) => d.value === current) ? current : "";
       S.devicesLoaded = true;
       $("#device-hint").textContent = data.audio.hint;
     } catch (err) {
@@ -1371,6 +1388,7 @@
         body: {
           timezone: $("#setting-timezone").value.trim(),
           base_url: $("#setting-baseurl").value.trim(),
+          audio_backend: selectedAudioBackend(),
           audio_device: select.value,
           link_retention_minutes: Number($("#setting-link-retention").value),
           target_volume: Number($("#setting-target-volume").value),
@@ -1379,9 +1397,10 @@
       S.settingsLoaded = false;
       S.devicesLoaded = false;
       S.deviceDirty = false;
+      S.audioBackendDirty = false;
       await refresh();
       if (S.view === "settings") await loadAudioDevices();
-      if (showToast) toast("Playback device saved");
+      if (showToast) toast("Audio settings saved");
       return true;
     } catch (err) {
       toast(err.message, "error");
@@ -1399,6 +1418,7 @@
         body: {
           timezone: $("#setting-timezone").value.trim(),
           base_url: $("#setting-baseurl").value.trim(),
+          audio_backend: selectedAudioBackend(),
           audio_device: $("#setting-audio-device").value,
           link_retention_minutes: Number($("#setting-link-retention").value),
           target_volume: Number($("#setting-target-volume").value),
@@ -1407,6 +1427,7 @@
       S.settingsLoaded = false;
       S.devicesLoaded = false;
       S.deviceDirty = false;
+      S.audioBackendDirty = false;
       await refresh();
       if (S.view === "settings") await loadAudioDevices();
       toast("Target volume saved");
@@ -1447,6 +1468,7 @@
         body: {
           timezone: $("#setting-timezone").value.trim(),
           base_url: $("#setting-baseurl").value.trim(),
+          audio_backend: selectedAudioBackend(),
           audio_device: $("#setting-audio-device").value,
           link_retention_minutes: Number($("#setting-link-retention").value),
           target_volume: Number($("#setting-target-volume").value),
@@ -1455,6 +1477,7 @@
       S.settingsLoaded = false;
       S.devicesLoaded = false;
       S.deviceDirty = false;
+      S.audioBackendDirty = false;
       await refresh();
       if (S.view === "settings") await loadAudioDevices();
       toast("Settings saved");
@@ -1466,7 +1489,9 @@
     const select = $("#setting-audio-device");
     // The device select is saved on change, but make the test itself robust
     // against a selection made a moment ago (or a failed autosave).
-    if (select && S.data && select.value !== (S.data.settings.audio_device || "")) {
+    const backendChanged = S.data
+      && selectedAudioBackend() !== (S.data.settings.audio_backend || "auto");
+    if (select && S.data && (backendChanged || select.value !== (S.data.settings.audio_device || ""))) {
       if (!(await saveAudioDevice(false))) return;
     }
     btn.disabled = true;
@@ -1829,6 +1854,15 @@
     $("#audio-test").addEventListener("click", testAudio);
     $("#audio-warning").addEventListener("click", () => setView("settings"));
     $("#refresh-devices").addEventListener("click", refreshDevices);
+    $("#setting-audio-backend").addEventListener("change", async () => {
+      S.audioBackendDirty = true;
+      S.deviceDirty = true;
+      const select = $("#setting-audio-device");
+      if (select) select.value = "";
+      S.devicesLoaded = false;
+      await loadAudioDevices(true);
+      await saveAudioDevice();
+    });
     $("#setting-audio-device").addEventListener("change", () => {
       S.deviceDirty = true;
       saveAudioDevice();

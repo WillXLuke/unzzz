@@ -31,6 +31,7 @@ BEEP_SECONDS = 5.79
 _WAV_SUFFIXES = {".wav", ".wave"}
 _PLAYER_ORDER_WAV = ["aplay", "paplay", "mpv", "ffplay", "play"]
 _PLAYER_ORDER_OTHER = ["mpv", "ffplay", "paplay", "play"]
+AUDIO_BACKENDS = ("auto", "alsa", "pulse")
 
 
 def build_beep(path: Path) -> None:
@@ -153,6 +154,7 @@ class Audio:
         self._preview_error: str | None = None
         self.mode = "auto"
         self.backend = "none"
+        self.preferred_backend = "auto"
         self.device = ""
         self.custom_argv: list[str] | None = None
         self.players: dict[str, str] = {}
@@ -190,6 +192,11 @@ class Audio:
                 "no audio player found; install alsa-utils for aplay, or set UNZZZ_AUDIO_CMD"
             )
 
+    def set_backend(self, value: str) -> None:
+        backend = (value or "auto").strip().lower()
+        self.preferred_backend = backend if backend in AUDIO_BACKENDS else "auto"
+        self._update_backend()
+
     def set_device(self, value: str) -> None:
         self.device = (value or "").strip()
         self._update_backend()
@@ -212,7 +219,13 @@ class Audio:
     def _player_supports_device(self, player: str) -> bool:
         parsed = self._device_kind_name()
         if parsed is None:
-            return not self.device
+            if self.device:
+                return False
+            if self.preferred_backend == "alsa":
+                return player in ("aplay", "mpv")
+            if self.preferred_backend == "pulse":
+                return player in ("paplay", "mpv")
+            return True
         kind, _name = parsed
         if kind == "alsa":
             return player in ("aplay", "mpv")
@@ -222,7 +235,18 @@ class Audio:
 
     def _pick_player(self, path: Path) -> str | None:
         suffix = path.suffix.lower()
-        order = _PLAYER_ORDER_WAV if suffix in _WAV_SUFFIXES else _PLAYER_ORDER_OTHER
+        if suffix in _WAV_SUFFIXES:
+            if self.preferred_backend == "alsa":
+                order = ["aplay", "mpv"]
+            elif self.preferred_backend == "pulse":
+                order = ["paplay", "mpv"]
+            else:
+                order = _PLAYER_ORDER_WAV
+        else:
+            if self.preferred_backend in ("alsa", "pulse"):
+                order = ["mpv"]
+            else:
+                order = _PLAYER_ORDER_OTHER
         for name in order:
             if name in self.players and self._player_supports_device(name):
                 return name
@@ -231,6 +255,8 @@ class Audio:
     def _device_args(self, player: str) -> list[str]:
         parsed = self._device_kind_name()
         if parsed is None:
+            if player == "mpv" and self.preferred_backend in ("alsa", "pulse"):
+                return [f"--ao={self.preferred_backend}"]
             return []
         kind, name = parsed
         # A bare "hw:" PCM often accepts only one exact sample rate/format.
@@ -294,15 +320,18 @@ class Audio:
             hint = "Using a custom player command. Playback device selection is ignored."
         elif not available:
             hint = (
-                "No installed player can play this format"
-                + (" with the selected playback device" if self.device else "")
-                + ". Install alsa-utils/mpv or change the device in Settings."
+                "No installed player can play this format with the selected "
+                "audio backend"
+                + (" and device" if self.device else "")
+                + ". Install alsa-utils (ALSA) or pulseaudio-utils (PulseAudio), "
+                "and mpv for compressed music."
             )
         else:
             label = self.device or "system default"
             hint = f"Playing through {self.backend} ({label}). Use the test button to verify."
         return {
             "backend": self.backend,
+            "preferred_backend": self.preferred_backend,
             "available": available,
             "custom": self.mode == "custom",
             "device": self.device,

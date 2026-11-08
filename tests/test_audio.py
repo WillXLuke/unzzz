@@ -228,3 +228,46 @@ class AudioDeviceTests(unittest.TestCase):
         ok, error = audio.test()
         self.assertFalse(ok)
         self.assertIn("cannot open audio device", error)
+
+
+class AudioBackendSelectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="unzzz-audio-backend-"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_pulse_backend_prefers_paplay(self) -> None:
+        audio = Audio(self.tmp, command=None)
+        audio.mode = "auto"
+        audio.players = {"aplay": "/usr/bin/aplay", "paplay": "/usr/bin/paplay"}
+        audio.set_backend("pulse")
+        audio.set_device("")
+        argv = audio.command_for(self.tmp / "beep.wav")
+        self.assertEqual(argv[0], "/usr/bin/paplay")
+
+    def test_alsa_backend_prefers_aplay(self) -> None:
+        audio = Audio(self.tmp, command=None)
+        audio.mode = "auto"
+        audio.players = {"aplay": "/usr/bin/aplay", "paplay": "/usr/bin/paplay"}
+        audio.set_backend("alsa")
+        audio.set_device("")
+        argv = audio.command_for(self.tmp / "beep.wav")
+        self.assertEqual(argv[0], "/usr/bin/aplay")
+
+    def test_pulse_backend_uses_mpv_for_compressed_audio(self) -> None:
+        audio = Audio(self.tmp, command=None)
+        audio.mode = "auto"
+        audio.players = {"mpv": "/usr/bin/mpv"}
+        audio.set_backend("pulse")
+        audio.set_device("")
+        argv = audio.command_for(self.tmp / "song.mp3")
+        self.assertIn("--ao=pulse", argv)
+
+    def test_backend_mismatch_disables_device_playback(self) -> None:
+        audio = Audio(self.tmp, command=None)
+        audio.mode = "auto"
+        audio.players = {"aplay": "/usr/bin/aplay"}
+        audio.set_backend("pulse")
+        audio.set_device("alsa:default")
+        self.assertIsNone(audio.command_for(self.tmp / "beep.wav"))

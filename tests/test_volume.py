@@ -137,3 +137,14 @@ class UsbMixerTests(unittest.TestCase):
         calls = self.log.read_text()
         self.assertIn("sset Playback Volume Playback Volume 70%", calls)
         self.assertNotIn("sset Master", calls)
+
+
+class VolumeBackendSelectionTests(VolumeControllerTests):
+    def test_explicit_pulse_backend_uses_pactl(self) -> None:
+        self.fake_pactl()
+        volume = VolumeController("", target=60, store=self.store, backend="pulse")
+        self.assertEqual(volume.status()["backend"], "pulse")
+        self.assertEqual(volume.current(force=True), (35, None))
+        ok, error = volume.set_percent(60)
+        self.assertTrue(ok, error)
+        self.assertIn("set-sink-volume @DEFAULT_SINK@ 60%", self.log.read_text())

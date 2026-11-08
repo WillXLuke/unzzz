@@ -225,6 +225,10 @@ class App:
             })
         return items
 
+    def app_audio_backend(self) -> str:
+        backend = self.store.get_setting("audio_backend") or "auto"
+        return backend if backend in ("auto", "alsa", "pulse") else "auto"
+
     def build_state(self, handler: "Handler", base: str) -> dict:
         alarms = [self.decorate_alarm(a, base) for a in self.store.list_alarms()]
         users = [
@@ -296,6 +300,7 @@ class App:
                 "timezone": self.engine.tz_name,
                 "base_url": configured_base,
                 "effective_base_url": base,
+                "audio_backend": self.app_audio_backend(),
                 "audio_device": self.store.get_setting("audio_device") or "",
                 "link_retention_minutes": self.engine.link_retention_minutes,
             },
@@ -1181,6 +1186,19 @@ class Handler(BaseHTTPRequestHandler):
         tz_name = str(body.get("timezone") or "").strip()
         base_url = str(body.get("base_url") or "").strip().rstrip("/")
         audio_device = str(body.get("audio_device") or "").strip()
+        current_backend = self.app.app_audio_backend()
+        audio_backend = str(body.get("audio_backend") or current_backend).strip().lower()
+        if audio_backend not in ("auto", "alsa", "pulse"):
+            raise ApiError(400, "Audio backend must be auto, alsa or pulse")
+        parsed_device = parse_device(audio_device) if audio_device else None
+        if audio_device and parsed_device is None:
+            raise ApiError(400, "Audio device must be empty or start with alsa:/pulse:")
+        if (
+            audio_backend in ("alsa", "pulse")
+            and parsed_device
+            and parsed_device[0] != audio_backend
+        ):
+            raise ApiError(400, "Audio device does not match the selected backend")
         target_volume = None
         if "target_volume" in body:
             try:
@@ -1205,10 +1223,10 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlsplit(base_url)
             if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
                 raise ApiError(400, "Base URL must look like http://host:port")
-        if audio_device and parse_device(audio_device) is None:
-            raise ApiError(400, "Audio device must be empty or start with alsa:/pulse:")
         self.app.store.set_setting("base_url", base_url)
         self.app.engine.set_timezone(tz_name)
+        if "audio_backend" in body:
+            self.app.engine.set_audio_backend(audio_backend)
         if "audio_device" in body:
             self.app.engine.set_audio_device(audio_device)
         if retention is not None:
@@ -1228,6 +1246,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "devices": devices,
                 "current": current,
+                "backend": self.app.app_audio_backend(),
                 "audio": self.app.engine.audio.describe(),
             }
         )

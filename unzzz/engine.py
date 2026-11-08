@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from .audio import Audio
+from .audio import AUDIO_BACKENDS, Audio, parse_device
 from .db import Store
 from .challenge_types import (
     CUSTOM_TYPES,
@@ -64,17 +64,23 @@ class Engine:
     ) -> None:
         self.store = store
         self.data_dir = Path(data_dir)
-        self.audio = Audio(self.data_dir, command=audio_command)
-        self.audio.set_device(
+        backend = store.get_setting("audio_backend") or "auto"
+        backend = backend if backend in AUDIO_BACKENDS else "auto"
+        selected_device = (
             audio_device if audio_device is not None
             else (store.get_setting("audio_device") or "")
         )
+        selected_device = self._device_for_backend(selected_device, backend)
+        self.audio = Audio(self.data_dir, command=audio_command)
+        self.audio.set_backend(backend)
+        self.audio.set_device(selected_device)
         try:
             target_volume = int(store.get_setting("target_volume") or VOLUME_DEFAULT)
         except (TypeError, ValueError):
             target_volume = VOLUME_DEFAULT
         self.volume = VolumeController(
-            device=self.audio.device, target=target_volume, store=store
+            device=selected_device, target=target_volume, store=store,
+            backend=backend,
         )
         self.preview_music_id: int | None = None
         self.rings: dict[int, RingSession] = {}
@@ -113,7 +119,26 @@ class Engine:
         self.store.set_setting("timezone", name)
         self.recompute_schedules()
 
+    @staticmethod
+    def _device_for_backend(value: str, backend: str) -> str:
+        parsed = parse_device(value)
+        if backend in ("alsa", "pulse") and parsed and parsed[0] != backend:
+            return ""
+        return (value or "").strip()
+
+    def set_audio_backend(self, value: str) -> None:
+        backend = (value or "auto").strip().lower()
+        if backend not in AUDIO_BACKENDS:
+            backend = "auto"
+        self.audio.set_backend(backend)
+        self.volume.set_backend(backend)
+        self.store.set_setting("audio_backend", backend)
+        if self.audio.device:
+            self.set_audio_device(self._device_for_backend(self.audio.device, backend))
+
     def set_audio_device(self, value: str) -> None:
+        backend = self.audio.preferred_backend
+        value = self._device_for_backend(value, backend)
         self.audio.set_device(value)
         self.volume.set_device(value)
         self.store.set_setting("audio_device", value)
