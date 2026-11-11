@@ -136,7 +136,7 @@ class Game2048Tests(unittest.TestCase):
 class GameChallengesTests(unittest.TestCase):
     def test_generated_games_and_targets(self) -> None:
         for kind, target in (
-            ("snake", 10), ("whac", 10), ("dino", 15), ("piano", 30),
+            ("snake", 10), ("whac", 10), ("dino", 15),
         ):
             spec = generate_challenge(kind)
             self.assertEqual(spec["challenge_type"], kind)

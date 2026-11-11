@@ -237,19 +237,9 @@
     }
     if (type === "dino") {
       return `<div class="question-box" id="answer-area">
-        <div class="game-hud"><span>Jumped <strong id="dino-score">0</strong> / 15</span><span class="muted small">Tap or press Space to jump.</span></div>
+        <div class="game-hud"><span>Jumped <strong id="dino-score">0</strong> / 15</span><span class="muted small">Tap the screen to jump.</span></div>
         <canvas id="dino-canvas" width="480" height="170" class="dino-canvas" aria-label="Dino run game"></canvas>
-        <div class="row"><button class="btn primary" type="button" id="dino-jump">Jump</button></div>
-        <p class="muted small" id="dino-status">Jump over 15 obstacles.</p>
-        <form id="answer-form" autocomplete="off"><input id="answer" type="hidden" value=""><button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button></form>
-        ${feedback}
-      </div>`;
-    }
-    if (type === "piano") {
-      return `<div class="question-box" id="answer-area">
-        <div class="game-hud"><span>Tiles <strong id="piano-score">0</strong></span><span class="muted small" id="piano-clock">Tap a black tile to start · 30s</span></div>
-        <div class="piano-grid" id="piano-grid"></div>
-        <p class="muted small" id="piano-status">Do not touch the white tiles.</p>
+        <p class="muted small" id="dino-status">Tap the screen or press Space to jump.</p>
         <form id="answer-form" autocomplete="off"><input id="answer" type="hidden" value=""><button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button></form>
         ${feedback}
       </div>`;
@@ -375,7 +365,6 @@
     if ($("#snake-canvas")) bindSnake(data);
     if ($("#whac-grid")) bindWhac(data);
     if ($("#dino-canvas")) bindDino(data);
-    if ($("#piano-grid")) bindPiano(data);
     const field = $("#answer");
     if (field) setTimeout(() => field.focus(), 40);
   }
@@ -623,7 +612,7 @@
     const ground = 140;
     const game = {
       dino: { x: 54, y: ground - 38, w: 28, h: 38, vy: 0, jumping: false },
-      obstacle: { x: 480, y: ground - 34, w: 22, h: 34 },
+      obstacle: { x: 480, y: ground - 34, w: 22, h: 34, hit: false },
       score: 0, over: false, speed: 3.4,
     };
     const scoreEl = $("#dino-score");
@@ -657,28 +646,27 @@
         && game.obstacle.x + game.obstacle.w > game.dino.x
         && game.obstacle.y < game.dino.y + game.dino.h
         && game.obstacle.y + game.obstacle.h > game.dino.y;
-      if (hit) {
-        game.score = 0;
-        game.speed = 3.4;
-        game.obstacle.x = 480;
-        if (scoreEl) scoreEl.textContent = "0";
-        if (statusEl) statusEl.textContent = "Crashed — try again.";
+      if (hit && !game.obstacle.hit) {
+        game.obstacle.hit = true;
+        if (statusEl) statusEl.textContent = "Hit — no point for that obstacle.";
       }
       if (game.obstacle.x + game.obstacle.w < game.dino.x) {
-        game.score += 1;
-        game.speed = Math.min(6.5, game.speed + 0.08);
-        if (scoreEl) scoreEl.textContent = String(game.score);
-        if (game.score >= target) {
-          game.over = true;
-          finishGame("15", statusEl, "15 obstacles — checking…");
-          return;
+        if (!game.obstacle.hit) {
+          game.score += 1;
+          game.speed = Math.min(6.5, game.speed + 0.08);
+          if (scoreEl) scoreEl.textContent = String(game.score);
+          if (game.score >= target) {
+            game.over = true;
+            finishGame("15", statusEl, "15 obstacles — checking…");
+            return;
+          }
         }
         game.obstacle.x = 480;
+        game.obstacle.hit = false;
       }
       draw();
     };
     S.dinoGame = game;
-    $("#dino-jump")?.addEventListener("click", jump);
     canvas.addEventListener("pointerdown", (event) => { event.preventDefault(); jump(); });
     document.addEventListener("keydown", (event) => {
       if (S.dinoGame !== game) return;
@@ -689,63 +677,6 @@
     });
     draw();
     gameInterval(step, 30);
-  }
-
-  function bindPiano(data) {
-    const grid = $("#piano-grid");
-    if (!grid) return;
-    const target = 30;
-    const rows = 4, cols = 4;
-    let black = Array.from({ length: rows }, () => Math.floor(Math.random() * cols));
-    let started = false;
-    let left = target;
-    let score = 0;
-    const clock = $("#piano-clock");
-    const scoreEl = $("#piano-score");
-    const statusEl = $("#piano-status");
-    const render = () => {
-      grid.innerHTML = Array.from({ length: rows }, (_, row) =>
-        Array.from({ length: cols }, (_, col) =>
-          `<button class="piano-cell ${black[row] === col ? "black" : "white"}" type="button" data-piano-row="${row}" data-piano-col="${col}" aria-label="${black[row] === col ? "Black" : "White"} tile"></button>`
-        ).join("")
-      ).join("");
-      $$("[data-piano-row]", grid).forEach((cell) => {
-        cell.addEventListener("click", () => {
-          const row = Number(cell.dataset.pianoRow);
-          const col = Number(cell.dataset.pianoCol);
-          if (black[row] !== col) {
-            left = target;
-            started = false;
-            score = 0;
-            if (clock) clock.textContent = "Tap a black tile to start · 30s";
-            if (scoreEl) scoreEl.textContent = "0";
-            if (statusEl) statusEl.textContent = "White tile! Start again.";
-            return;
-          }
-          if (!started) {
-            started = true;
-            left = target;
-            if (statusEl) statusEl.textContent = "Do not touch the white tiles.";
-          }
-          score += 1;
-          if (scoreEl) scoreEl.textContent = String(score);
-        });
-      });
-    };
-    const shift = () => {
-      black = [Math.floor(Math.random() * cols), ...black.slice(0, rows - 1)];
-      render();
-    };
-    render();
-    gameInterval(shift, 700);
-    gameInterval(() => {
-      if (!started) return;
-      left -= 0.1;
-      if (clock) clock.textContent = `${Math.max(0, left).toFixed(1)}s`;
-      if (left <= 0) {
-        finishGame("30", statusEl, "30 seconds — checking…");
-      }
-    }, 100);
   }
 
   function bind2048(boardEl) {
@@ -1032,7 +963,7 @@
         feedback.className = "feedback bad";
         return;
       }
-    } else if (["snake", "whac", "dino", "piano"].includes(type)) {
+    } else if (["snake", "whac", "dino"].includes(type)) {
       const input = $("#answer");
       value = input.value.trim();
       if (!value) {

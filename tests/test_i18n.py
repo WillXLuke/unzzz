@@ -111,10 +111,15 @@ class NewUIAssetTests(unittest.TestCase):
         self.assertIn("gameInterval(step, 220)", js)
         self.assertIn("game.dino.vy = -11.5", js)
         self.assertNotIn("data-snake-dir", js)
+        self.assertNotIn("dino-jump", js)
+        self.assertIn("game.obstacle.hit", js)
+        self.assertNotIn("piano-grid", js)
+        self.assertIn("margin-inline: auto", css)
         i18n = (ASSETS / "i18n.js").read_text()
+        self.assertIn("Tap the screen to jump.", i18n)
         for key in (
             "Swipe the board", "Snake", "Whac-A-Mole", "Dino run",
-            "Piano tiles", "Backup & restore", "Try a challenge",
+            "Backup & restore", "Try a challenge", "Tap the screen to jump.",
         ):
             self.assertIn(key, i18n)
         self.assertIn("question-option-list", html)

@@ -186,7 +186,7 @@
     $("#screen-auth").hidden = false;
     $("#login-form").hidden = mode !== "login";
     $("#setup-form").hidden = mode !== "setup";
-    $("#auth-version").textContent = "2.5.1";
+    $("#auth-version").textContent = "2.5.2";
     $("#login-error").textContent = "";
     $("#setup-error").textContent = "";
     setTimeout(() => {
@@ -322,7 +322,6 @@
     ["snake", "Snake"],
     ["whac", "Whac-A-Mole"],
     ["dino", "Dino run"],
-    ["piano", "Piano tiles"],
   ];
 
   function planValueToDescriptor(value) {
@@ -1024,7 +1023,7 @@
     ["pattern6", "Pattern paint 6×6"], ["pattern9", "Pattern paint 9×9"],
     ["hold", "Button hold"], ["typing", "Typing test"], ["dice", "Roll dice"],
     ["game2048", "2048"], ["snake", "Snake"], ["whac", "Whac-A-Mole"],
-    ["dino", "Dino run"], ["piano", "Piano tiles"],
+    ["dino", "Dino run"],
   ];
 
   function renderChallengePreviews() {

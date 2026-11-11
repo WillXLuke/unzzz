@@ -854,7 +854,7 @@ class Engine:
         elif ctype == "game2048":
             if str(raw_answer).strip() != "128":
                 raise EngineError("Reach the 128 tile first", 400)
-        elif ctype in ("snake", "whac", "dino", "piano"):
+        elif ctype in ("snake", "whac", "dino"):
             challenges = self.store.get_challenge_by_token(token)
             if not challenges:
                 raise EngineError("This link is not valid", 404)

@@ -27,11 +27,10 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   is not limited to six). Each selected user gets a private shortlink and a
   challenge. The alarm stops when **everyone selected** answers, or when a
   fixed number of correct answers is reached.
-- **Fourteen challenge types** — generated maths, text answer, multiple choice,
+- **Thirteen challenge types** — generated maths, text answer, multiple choice,
   random multiple choice, colour match, pattern paint (3×3, 6×6 or 9×9), a
   five-second button hold, an exact typing test, a five-try dice roll, 2048,
-  Snake (10 apples), Whac-A-Mole (10 hits), Dino run (15 jumps) and Piano
-  tiles (30 seconds).
+  Snake (10 apples), Whac-A-Mole (10 hits) and Dino run (15 jumps).
 - **Ordered challenge plans** — when a person has to pass more than one
   challenge, choose a different type for each step and reorder them with
   ↑ / ↓ arrows. Every selected person follows the same order.
@@ -178,10 +177,10 @@ Download or build the package matching the machine:
 
 ```bash
 # 64-bit PC / server
-sudo apt install ./unzzz_2.5.1_amd64.deb
+sudo apt install ./unzzz_2.5.2_amd64.deb
 
 # 64-bit Raspberry Pi OS
-sudo apt install ./unzzz_2.5.1_arm64.deb
+sudo apt install ./unzzz_2.5.2_arm64.deb
 ```
 
 The package:
@@ -198,8 +197,8 @@ both architectures from a checkout with:
 
 ```bash
 ./packaging/build-deb.sh
-# dist/unzzz_2.5.1_amd64.deb
-# dist/unzzz_2.5.1_arm64.deb
+# dist/unzzz_2.5.2_amd64.deb
+# dist/unzzz_2.5.2_arm64.deb
 ```
 
 ## Raspberry Pi install
@@ -268,8 +267,8 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
 - **Alarm editor** — label, time, repeat days or one-time date, standard vs
   challenge, 1–6 selected users, **challenge type** (maths, text, multiple
   choice, random multiple choice, colour match, pattern paint 3×3/6×6/9×9,
-  button hold, typing test, dice, 2048, Snake, Whac-A-Mole, Dino run, Piano
-  tiles), **challenges per person** (1–10), ordered or random plan, finish
+  button hold, typing test, dice, 2048, Snake, Whac-A-Mole, Dino run),
+  **challenges per person** (1–10), ordered or random plan, finish
   condition (all or fixed
   number), public shortlink for challenge alarms, music, muted sound, snooze
   limits, give-up limit. Links are managed in the **Links** tab.
@@ -358,7 +357,6 @@ The alarm editor offers fourteen types:
 | **Snake** | eat 10 apples with the on-screen joystick | generated per person |
 | **Whac-A-Mole** | hit 10 moles | generated per person |
 | **Dino run** | jump over 15 obstacles | generated per person |
-| **Piano tiles** | tap black tiles for 30 seconds without touching white | generated per person |
 
 Wrong answers issue a fresh challenge (and, for generated types, a new
 pattern/colour pair). **Challenges per person** controls how many correct
