@@ -157,7 +157,7 @@
   }
 
   function setView(view) {
-    const views = ["alarms", "users", "challenges", "links", "music", "history", "settings"];
+    const views = ["alarms", "users", "challenges", "links", "music", "logs", "settings"];
     if (!views.includes(view)) view = "alarms";
     S.view = view;
     localStorage.setItem("unzzz-view", view);
@@ -167,7 +167,7 @@
       if (active) tab.scrollIntoView({ block: "nearest", inline: "center" });
     });
     $$(".view").forEach((section) => { section.hidden = section.id !== `view-${view}`; });
-    if (view === "history" && S.data && !S.sig.history) renderHistory(S.data);
+    if (view === "logs" && S.data && !S.sig.history) renderHistory(S.data);
     if (view === "settings" && S.data) loadAudioDevices();
   }
 
@@ -186,7 +186,7 @@
     $("#screen-auth").hidden = false;
     $("#login-form").hidden = mode !== "login";
     $("#setup-form").hidden = mode !== "setup";
-    $("#auth-version").textContent = "2.4.0";
+    $("#auth-version").textContent = "2.5.0";
     $("#login-error").textContent = "";
     $("#setup-error").textContent = "";
     setTimeout(() => {
@@ -276,9 +276,11 @@
     renderAlarms(data);
     renderUsers(data);
     renderQuestions(data);
+    renderChallengePreviews();
     renderLinks(data);
     renderMusic(data);
     renderHistory(data);
+    renderServiceLogs(data);
     renderSettings(data);
     renderRingDock(data);
     tickClock();
@@ -317,6 +319,10 @@
     ["typing", "Typing test"],
     ["dice", "Roll dice"],
     ["game2048", "2048"],
+    ["snake", "Snake"],
+    ["whac", "Whac-A-Mole"],
+    ["dino", "Dino run"],
+    ["piano", "Piano tiles"],
   ];
 
   function planValueToDescriptor(value) {
@@ -556,6 +562,17 @@
     if (Number(target.value) > max) target.value = String(max);
 
     const count = Math.max(1, Math.min(10, Number($("#alarm-challenge-count").value) || 1));
+    const randomOrder = $("#alarm-challenge-order").value === "random";
+    $("#random-range-field").hidden = !randomOrder;
+    const randomMin = $("#alarm-random-min");
+    const randomMax = $("#alarm-random-max");
+    randomMin.max = String(count);
+    randomMax.max = String(count);
+    if (Number(randomMin.value) > count) randomMin.value = "1";
+    if (Number(randomMax.value) > count) randomMax.value = String(count);
+    if (Number(randomMin.value) > Number(randomMax.value)) {
+      randomMax.value = randomMin.value;
+    }
     const multi = count > 1;
     $("#single-challenge-type-field").hidden = multi;
     $("#challenge-plan-wrap").hidden = !multi;
@@ -607,6 +624,9 @@
     $("#alarm-time").value = alarm ? alarm.time : "07:00";
     $("#alarm-once").value = alarm?.once_date || "";
     $("#alarm-challenge-count").value = String(alarm?.challenge_count || 1);
+    $("#alarm-challenge-order").value = alarm?.challenge_order || "fixed";
+    $("#alarm-random-min").value = String(alarm?.challenge_random_min || 1);
+    $("#alarm-random-max").value = String(alarm?.challenge_random_max || alarm?.challenge_count || 1);
     $("#alarm-snooze").value = alarm?.snooze_minutes ?? 9;
     $("#alarm-max-snooze").value = alarm?.max_snoozes ?? 2;
     $("#alarm-max-ring").value = alarm?.max_ring_minutes ?? 15;
@@ -625,6 +645,7 @@
     S.challengePlan = savedPlan.slice(0, count);
     ensureChallengePlan(count);
     $("#alarm-challenge-type").value = descriptorToValue(S.challengePlan[0]);
+    $("#alarm-finish-beep").checked = Boolean(alarm?.finish_beep);
     $("#alarm-muted").checked = Boolean(alarm?.muted);
     $("#alarm-slug").value = alarm?.slug || randomSlug();
 
@@ -681,6 +702,17 @@
         error.textContent = "Challenges per person must be between 1 and 10.";
         return;
       }
+      const randomOrder = $("#alarm-challenge-order").value === "random";
+      const rmin = Number($("#alarm-random-min").value);
+      const rmax = Number($("#alarm-random-max").value);
+      if (
+        randomOrder
+        && (!Number.isInteger(rmin) || !Number.isInteger(rmax)
+          || rmin < 1 || rmax < rmin || rmax > challengeCount)
+      ) {
+        error.textContent = "Random range must be within 1 and Challenges per person.";
+        return;
+      }
       const plan = currentChallengePlan();
       for (const step of plan) {
         if (!["text", "choice", "random_choice"].includes(step.type)) continue;
@@ -721,6 +753,10 @@
       target_count: completionMode === "count" ? target : 1,
       challenge_type: currentChallengePlan()[0]?.type || "math",
       challenge_plan: currentChallengePlan(),
+      challenge_order: $("#alarm-challenge-order").value,
+      challenge_random_min: Number($("#alarm-random-min").value) || 1,
+      challenge_random_max: Number($("#alarm-random-max").value) || 1,
+      finish_beep: $("#alarm-finish-beep").checked,
       muted: $("#alarm-muted").checked,
       music_id: $("#alarm-music").value ? Number($("#alarm-music").value) : null,
       slug,
@@ -981,6 +1017,44 @@
     }
   }
 
+  const PREVIEW_TYPES = [
+    ["math", "Generated maths"], ["text", "Text question"],
+    ["choice", "Multiple choice"], ["random_choice", "Random multiple choice"],
+    ["color", "Colour match"], ["pattern3", "Pattern paint 3×3"],
+    ["pattern6", "Pattern paint 6×6"], ["pattern9", "Pattern paint 9×9"],
+    ["hold", "Button hold"], ["typing", "Typing test"], ["dice", "Roll dice"],
+    ["game2048", "2048"], ["snake", "Snake"], ["whac", "Whac-A-Mole"],
+    ["dino", "Dino run"], ["piano", "Piano tiles"],
+  ];
+
+  function renderChallengePreviews() {
+    const host = $("#challenge-preview-list");
+    if (!host) return;
+    host.innerHTML = PREVIEW_TYPES.map(([type, label]) => `
+      <div class="preview-row">
+        <span>${label}</span>
+        <button class="btn ghost tiny" type="button" data-preview-type="${type}">Play</button>
+      </div>`).join("");
+  }
+
+  async function playChallengePreview(type) {
+    const win = window.open("about:blank", "_blank");
+    try {
+      const data = await api("/api/challenges/preview", {
+        method: "POST", body: { type },
+      });
+      if (win) {
+        win.opener = null;
+        win.location.href = data.url;
+      } else {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      if (win) win.close();
+      toast(err.message, "error");
+    }
+  }
+
   async function importQuestions(event) {
     event.preventDefault();
     const input = $("#question-csv");
@@ -1054,13 +1128,20 @@
   function renderMusic(data) {
     const tracks = data.music || [];
     const preview = data.music_preview || {};
-    const sig = sigOf(tracks) + sigOf(preview);
+    const finishId = data.settings?.finish_beep_music_id || "";
+    const sig = sigOf(tracks) + sigOf(preview) + String(finishId);
     $("#music-count").textContent = `${tracks.length} track${tracks.length === 1 ? "" : "s"}`;
     $("#music-empty").hidden = tracks.length > 0;
     const previewError = $("#music-preview-error");
     if (previewError) previewError.textContent = preview.error || "";
     if (S.sig.music === sig) return;
     S.sig.music = sig;
+    const finishSelect = $("#finish-beep-music");
+    if (finishSelect) {
+      finishSelect.innerHTML = '<option value="">Built-in finish chime</option>' +
+        tracks.map((track) => `<option value="${track.id}">${esc(track.name)}</option>`).join("");
+      finishSelect.value = String(finishId || "");
+    }
     $("#music-list").innerHTML = tracks.map((track) => {
       const playing = Boolean(preview.playing && preview.music_id === track.id);
       return `
@@ -1282,6 +1363,23 @@
     snoozed: ["Snoozed", "warn"],
   };
 
+  function renderServiceLogs(data) {
+    const logs = data.service_logs || [];
+    const sig = sigOf(logs);
+    if (S.sig.serviceLogs === sig) return;
+    S.sig.serviceLogs = sig;
+    const body = $("#service-logs-body");
+    if (!body) return;
+    body.innerHTML = logs.map((entry) => `
+      <tr>
+        <td class="history-time">${esc(fmtDateTime(entry.ts))}</td>
+        <td><span class="badge ${entry.level === "error" ? "danger" : entry.level === "warn" ? "warn" : ""}">${esc(entry.level)}</span></td>
+        <td data-i18n-skip>${esc(entry.message)}</td>
+      </tr>`).join("");
+    const empty = $("#service-logs-empty");
+    if (empty) empty.hidden = logs.length > 0;
+  }
+
   function renderHistory(data) {
     const sig = sigOf(data.history) + tz();
     if (S.sig.history === sig) return;
@@ -1441,6 +1539,89 @@
     S.devicesLoaded = false;
     await loadAudioDevices(true);
     toast("Device list refreshed");
+  }
+
+  async function downloadBackup() {
+    const button = $("#backup-download");
+    button.disabled = true;
+    try {
+      const res = await fetch("/api/backup", { headers: { Accept: "application/zip" } });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Could not create backup");
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const name = match ? match[1] : "unzzz-backup.zip";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("Backup downloaded");
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function restoreBackup() {
+    const input = $("#restore-file");
+    const hint = $("#restore-hint");
+    const file = input?.files?.[0];
+    if (!file) {
+      hint.textContent = "Choose a backup ZIP first.";
+      return;
+    }
+    const ok = await confirmAction({
+      title: "Restore this backup?",
+      text: "The current database and music will be replaced on the next service start. A safety copy is kept on disk.",
+      confirmLabel: "Stage restore",
+    });
+    if (!ok) return;
+    hint.textContent = "Uploading…";
+    try {
+      const res = await fetch("/api/restore", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/zip",
+          Accept: "application/json",
+          "X-Unzzz-Csrf": "1",
+        },
+        body: file,
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) {
+        throw new Error(body?.error || "Could not stage restore");
+      }
+      input.value = "";
+      hint.textContent = "Backup staged. Restart unzzz to apply it.";
+      toast("Restore staged — restart the service");
+    } catch (err) {
+      hint.textContent = err.message;
+      toast(err.message, "error");
+    }
+  }
+
+  async function saveFinishBeep() {
+    const select = $("#finish-beep-music");
+    if (!select) return;
+    try {
+      await api("/api/music/finish-beep", {
+        method: "POST",
+        body: { music_id: select.value ? Number(select.value) : null },
+      });
+      S.settingsLoaded = false;
+      await refresh();
+      toast("Finish beep saved");
+    } catch (err) {
+      toast(err.message, "error");
+    }
   }
 
   function renderAudioWarning() {
@@ -1797,6 +1978,9 @@
     });
 
     $("#alarm-challenge-count").addEventListener("input", updateChallengeOptions);
+    $("#alarm-challenge-order").addEventListener("change", updateChallengeOptions);
+    $("#alarm-random-min").addEventListener("input", updateChallengeOptions);
+    $("#alarm-random-max").addEventListener("input", updateChallengeOptions);
     $("#alarm-challenge-type").addEventListener("change", () => {
       S.challengePlan = [planValueToDescriptor($("#alarm-challenge-type").value)];
     });
@@ -1825,6 +2009,10 @@
     $$("[data-close-link-edit]").forEach((btn) => btn.addEventListener("click", closeLinkEditor));
     $("#question-form").addEventListener("submit", saveQuestion);
     $("#question-option-add").addEventListener("click", addQuestionOption);
+    $("#challenge-preview-list").addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-preview-type]");
+      if (btn) playChallengePreview(btn.dataset.previewType);
+    });
     $("#question-option-list").addEventListener("click", (event) => {
       const button = event.target.closest("[data-remove-option]");
       if (button) removeQuestionOption(button);
@@ -1854,6 +2042,9 @@
     $("#audio-test").addEventListener("click", testAudio);
     $("#audio-warning").addEventListener("click", () => setView("settings"));
     $("#refresh-devices").addEventListener("click", refreshDevices);
+    $("#finish-beep-save").addEventListener("click", saveFinishBeep);
+    $("#backup-download").addEventListener("click", downloadBackup);
+    $("#backup-restore").addEventListener("click", restoreBackup);
     $("#setting-audio-backend").addEventListener("change", async () => {
       S.audioBackendDirty = true;
       S.deviceDirty = true;

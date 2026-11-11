@@ -11,7 +11,7 @@ import unittest
 import wave
 from pathlib import Path
 
-from unzzz.audio import SAMPLE_RATE, Audio, build_beep, list_audio_devices
+from unzzz.audio import SAMPLE_RATE, Audio, build_beep, build_finish_beep, list_audio_devices
 from unzzz.db import Store
 from unzzz.engine import Engine
 
@@ -32,6 +32,20 @@ class AudioTests(unittest.TestCase):
             self.assertEqual(fh.getsampwidth(), 2)
             self.assertEqual(fh.getframerate(), SAMPLE_RATE)
             self.assertGreater(fh.getnframes(), int(SAMPLE_RATE * 5))
+
+    def test_finish_beep_builds_and_plays(self) -> None:
+        log = self.tmp / "finish.log"
+        script = self.tmp / "finish-player.sh"
+        script.write_text("#!/bin/sh\n" + f'echo played >> "{log}"\n')
+        script.chmod(0o755)
+        audio = Audio(self.tmp, command=str(script))
+        audio.play_finish()
+        deadline = time.time() + 3
+        while time.time() < deadline and not log.exists():
+            time.sleep(0.03)
+        self.assertTrue(log.exists())
+        self.assertTrue((self.tmp / "beep_finish.wav").exists())
+        audio.stop_finish()
 
     def test_silent_mode(self) -> None:
         audio = Audio(self.tmp, command="none")

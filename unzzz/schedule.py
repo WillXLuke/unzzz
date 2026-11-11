@@ -24,6 +24,7 @@ QUESTION_SOURCES = ("auto", "custom")
 CHALLENGE_TYPES = (
     "math", "text", "choice", "random_choice", "color", "pattern",
     "hold", "typing", "dice", "game2048",
+    "snake", "whac", "dino", "piano",
 )
 CUSTOM_TYPES = ("text", "choice", "random_choice")
 PATTERN_SIZES = (3, 6, 9)
@@ -443,6 +444,20 @@ def validate_alarm_payload(
     pattern_size = int(data.get("pattern_size", 3) or 3)
     if pattern_size not in PATTERN_SIZES:
         return None, "Pattern size must be 3, 6 or 9"
+    challenge_order = str(data.get("challenge_order") or "fixed").strip().lower()
+    if challenge_order not in ("fixed", "random"):
+        return None, "challenge_order must be fixed or random"
+    try:
+        random_min = int(data.get("challenge_random_min", challenge_count))
+        random_max = int(data.get("challenge_random_max", challenge_count))
+    except (TypeError, ValueError):
+        return None, "Random challenge range must be whole numbers"
+    if mode == "challenge":
+        if not (1 <= random_min <= random_max <= challenge_count):
+            return None, "Random challenge range must be within 1 and Challenges per person"
+    else:
+        challenge_order = "fixed"
+        random_min = random_max = 1
     plan = None
     if mode == "challenge":
         plan, plan_error = normalize_challenge_plan(
@@ -525,7 +540,11 @@ def validate_alarm_payload(
         "challenge_type": challenge_type,
         "challenge_count": challenge_count,
         "challenge_plan": json.dumps(plan, separators=(",", ":")) if plan else None,
+        "challenge_order": challenge_order,
+        "challenge_random_min": random_min,
+        "challenge_random_max": random_max,
         "pattern_size": pattern_size,
+        "finish_beep": bool(data.get("finish_beep", False)),
         "muted": bool(data.get("muted", False)),
         "music_id": music_id,
         "slug": slug,

@@ -131,3 +131,15 @@ class Game2048Tests(unittest.TestCase):
         self.assertEqual(spec["payload"]["target"], 128)
         self.assertTrue(check_answer("game2048", spec["answer"], "128"))
         self.assertFalse(check_answer("game2048", spec["answer"], "64"))
+
+
+class GameChallengesTests(unittest.TestCase):
+    def test_generated_games_and_targets(self) -> None:
+        for kind, target in (
+            ("snake", 10), ("whac", 10), ("dino", 15), ("piano", 30),
+        ):
+            spec = generate_challenge(kind)
+            self.assertEqual(spec["challenge_type"], kind)
+            self.assertEqual(spec["payload"]["target"], target)
+            self.assertTrue(check_answer(kind, spec["answer"], str(target)))
+            self.assertFalse(check_answer(kind, spec["answer"], "0"))

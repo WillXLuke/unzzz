@@ -1623,3 +1623,89 @@ class AlarmEditRegressionTests(ApiBase):
         self.assertEqual(data["alarm"]["label"], "Edited plan")
         self.assertTrue(data["alarm"]["muted"])
         self.assertEqual(data["alarm"]["challenge_plan"][1]["size"], 6)
+
+
+class RandomChallengePlanTests(ApiBase):
+    def test_random_range_and_shuffle(self) -> None:
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        alarm = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]], challenge_count=3,
+            challenge_type="color",
+            challenge_plan=[
+                {"type": "color"}, {"type": "hold"}, {"type": "pattern", "size": 6},
+            ],
+            challenge_order="random", challenge_random_min=2,
+            challenge_random_max=3, slug="random-plan",
+        )
+        self.assertEqual(alarm["challenge_order"], "random")
+        self.assertEqual(alarm["challenge_random_min"], 2)
+        event = self.fx.ring(alarm["id"])
+        self.assertIn(event["challenge_count"], (2, 3))
+        self.assertEqual(len(event["challenge_plan"]), event["challenge_count"])
+        self.assertEqual(len(event["challenges"]), 1)
+
+
+class GamePreviewTests(ApiBase):
+    def test_preview_snake_is_playable_and_hidden_from_logs(self) -> None:
+        self.fx.setup_admin()
+        status, data, _ = self.fx.client.request(
+            "POST", "/api/challenges/preview", {"type": "snake"}
+        )
+        self.assertEqual(status, 201, data)
+        token = data["url"].rsplit("/", 1)[-1]
+        status, state, _ = self.fx.client.request("GET", f"/api/s/{token}")
+        self.assertEqual(status, 200, state)
+        self.assertEqual(state["challenge"]["challenge_type"], "snake")
+        result = self.fx.answer(token, "10")
+        self.assertTrue(result["all_done"])
+        self.assertNotIn(
+            "Preview: snake",
+            [event["alarm_label"] for event in self.fx.state()["history"]],
+        )
+
+
+class ServiceLogsTests(ApiBase):
+    def test_logs_include_startup_and_alarm_lifecycle(self) -> None:
+        self.fx.setup_admin()
+        alarm = self.fx.create_alarm(slug="log-alarm")
+        event = self.fx.ring(alarm["id"])
+        self.fx.client.request("POST", f"/api/events/{event['id']}/stop", {"force": False})
+        state = self.fx.state()
+        messages = " ".join(entry["message"] for entry in state["service_logs"])
+        self.assertIn("Service started", messages)
+        self.assertIn("Alarm fired", messages)
+        self.assertIn("Alarm closed", messages)
+
+
+class BackupApiTests(ApiBase):
+    def test_backup_download_and_restore_staging(self) -> None:
+        self.fx.setup_admin()
+        status, payload, headers = self.fx.client.request_bytes("GET", "/api/backup")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Content-Type"), "application/zip")
+        self.assertIn("zip", headers.get("Content-Disposition", ""))
+        status, data, _ = self.fx.client.request_bytes(
+            "POST", "/api/restore", payload, "application/zip"
+        )
+        self.assertEqual(status, 200)
+        parsed = json.loads(data)
+        self.assertTrue(parsed["ok"])
+        self.assertTrue((self.fx.tmp / "restore-pending" / "unzzz.sqlite3").is_file())
+
+
+class FinishBeepApiTests(ApiBase):
+    def test_finish_beep_setting_and_alarm_snapshot(self) -> None:
+        self.fx.setup_admin()
+        user = self.fx.add_user("Ada")
+        alarm = self.fx.create_alarm(
+            mode="challenge", participants=[user["id"]],
+            challenge_type="math", finish_beep=True, slug="finish-beep",
+        )
+        self.assertTrue(alarm["finish_beep"])
+        event = self.fx.ring(alarm["id"])
+        self.assertTrue(event["finish_beep"])
+        status, data, _ = self.fx.client.request(
+            "POST", "/api/music/finish-beep", {"music_id": None}
+        )
+        self.assertEqual(status, 200, data)

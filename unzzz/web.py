@@ -8,6 +8,7 @@ import logging
 import mimetypes
 import os
 import re
+import secrets
 import threading
 import time
 import uuid
@@ -19,6 +20,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import __version__
 from .audio import list_audio_devices, parse_device
+from .backup import BackupError, MAX_RESTORE_BYTES, create_backup, stage_restore
 from .auth import (
     MAX_PASSWORD_LEN,
     MIN_PASSWORD_LEN,
@@ -30,9 +32,10 @@ from .auth import (
 from .db import Store
 from .engine import LINK_RETENTION_MAX, Engine, EngineError
 from .qrcodegen import QrCode
-from .challenge_types import CUSTOM_TYPES, parse_choice_options
+from .challenge_types import CUSTOM_TYPES, generate_challenge, parse_choice_options, spec_payload
 from .question_csv import QuestionCsvError, parse_choice_csv
 from .schedule import (
+    CHALLENGE_TYPES,
     MAX_ALARM_USERS,
     QUESTION_KINDS,
     RESERVED_SLUGS,
@@ -289,6 +292,7 @@ class App:
             "users": users,
             "active_events": active_events,
             "history": history,
+            "service_logs": self.store.list_service_logs(200),
             "questions": questions,
             "music": music,
             "next_alarm": self.engine.next_alarm(),
@@ -302,6 +306,7 @@ class App:
                 "effective_base_url": base,
                 "audio_backend": self.app_audio_backend(),
                 "audio_device": self.store.get_setting("audio_device") or "",
+                "finish_beep_music_id": self.store.get_setting("finish_beep_music_id") or "",
                 "link_retention_minutes": self.engine.link_retention_minutes,
             },
             "limits": {
@@ -339,7 +344,11 @@ class App:
                     json.loads(existing["challenge_plan"])
                     if existing.get("challenge_plan") else None
                 ),
+                "challenge_order": existing.get("challenge_order", "fixed"),
+                "challenge_random_min": existing.get("challenge_random_min", 1),
+                "challenge_random_max": existing.get("challenge_random_max", 1),
                 "pattern_size": 3,
+                "finish_beep": bool(existing.get("finish_beep", 0)),
                 "muted": bool(existing.get("muted", 0)),
                 "question_source": existing.get("question_source", "auto"),
                 "challenge_type": existing.get("challenge_type", "math"),
@@ -449,6 +458,8 @@ class Handler(BaseHTTPRequestHandler):
         ("POST", re.compile(r"^/api/links/all$"), "link_all_create"),
         ("PUT", re.compile(r"^/api/links/all$"), "link_all_update"),
         ("DELETE", re.compile(r"^/api/links/all$"), "link_all_delete"),
+        ("GET", re.compile(r"^/api/backup$"), "backup_download"),
+        ("POST", re.compile(r"^/api/restore$"), "backup_restore"),
         ("GET", re.compile(r"^/api/state$"), "state"),
         ("POST", re.compile(r"^/api/setup$"), "api_setup"),
         ("POST", re.compile(r"^/api/login$"), "login"),
@@ -459,12 +470,14 @@ class Handler(BaseHTTPRequestHandler):
         ("POST", re.compile(r"^/api/audio/test$"), "audio_test"),
         ("GET", re.compile(r"^/api/questions$"), "questions_list"),
         ("POST", re.compile(r"^/api/questions$"), "question_create"),
+        ("POST", re.compile(r"^/api/challenges/preview$"), "challenge_preview"),
         ("POST", re.compile(r"^/api/questions/import$"), "question_import"),
         ("PUT", re.compile(r"^/api/questions/(?P<id>\d+)$"), "question_update"),
         ("DELETE", re.compile(r"^/api/questions/(?P<id>\d+)$"), "question_delete"),
         ("GET", re.compile(r"^/api/music$"), "music_list"),
         ("POST", re.compile(r"^/api/music$"), "music_upload"),
         ("POST", re.compile(r"^/api/music/(?P<id>\d+)/test$"), "music_preview"),
+        ("POST", re.compile(r"^/api/music/finish-beep$"), "music_finish_beep"),
         ("POST", re.compile(r"^/api/music/(?P<id>\d+)/stop$"), "music_preview_stop"),
         ("DELETE", re.compile(r"^/api/music/(?P<id>\d+)$"), "music_delete"),
         ("GET", re.compile(r"^/api/music/(?P<id>\d+)/file$"), "music_file"),
@@ -517,7 +530,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             body: dict = {}
-            if method in ("POST", "PUT", "DELETE") and name != "music_upload":
+            if method in ("POST", "PUT", "DELETE") and name not in ("music_upload", "backup_restore"):
                 body = self._read_json() if method != "DELETE" else self._read_json(optional=True)
             getattr(self, name)(match, body)
         except ApiError as exc:
@@ -532,6 +545,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         except Exception:
             log.exception("request failed: %s %s", method, redact_path(path))
+            try:
+                self.application.store.add_service_log(
+                    "error", f"Request failed: {method} {redact_path(path)}"
+                )
+            except Exception:
+                pass
             self._send_json({"ok": False, "error": "Internal server error"}, 500)
 
     def _read_json(self, optional: bool = False) -> dict:
@@ -1180,6 +1199,38 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._send_json({"ok": True})
 
+    # ---------------------------------------------------------- backup/restore
+    def backup_download(self, match, body) -> None:
+        self._require_login()
+        try:
+            payload = create_backup(
+                self.app.store, self.app.music_dir, __version__
+            )
+        except Exception:
+            log.exception("backup failed")
+            raise ApiError(500, "Could not create backup")
+        filename = time.strftime("unzzz-backup-%Y%m%d-%H%M%S.zip", time.localtime())
+        self._send(
+            200, payload, "application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    def backup_restore(self, match, body) -> None:
+        self._require_admin()
+        upload = self.app.data_dir / f".restore-upload-{int(time.time())}.zip"
+        try:
+            self._receive_file(upload, MAX_RESTORE_BYTES)
+            result = stage_restore(self.app.data_dir, upload)
+        except BackupError as exc:
+            raise ApiError(400, str(exc))
+        finally:
+            upload.unlink(missing_ok=True)
+        self._send_json({
+            "ok": True,
+            "restart_required": True,
+            **result,
+        })
+
     # -------------------------------------------------------------- settings
     def settings(self, match, body) -> None:
         self._require_admin()
@@ -1306,6 +1357,52 @@ class Handler(BaseHTTPRequestHandler):
         item = self.app.store.add_question(question, answer, kind, options)
         self._send_json({"ok": True, "question": self.app.question_view(item)}, 201)
 
+    def challenge_preview(self, match, body) -> None:
+        self._require_admin()
+        raw = str(body.get("type") or "").strip().lower()
+        pattern_size = 3
+        if raw in ("pattern3", "pattern6", "pattern9"):
+            pattern_size = int(raw[-1])
+            raw = "pattern"
+        if raw not in CHALLENGE_TYPES:
+            raise ApiError(400, "Unknown challenge type")
+        pool = self.app.store.list_questions()
+        kind = raw
+        if kind == "random_choice":
+            kind = "choice"
+        spec = generate_challenge(
+            kind, "normal", pool, pattern_size=pattern_size
+        )
+        now = time.time()
+        plan = [{"type": raw, **({"size": pattern_size} if raw == "pattern" else {})}]
+        event = self.app.store.create_event(
+            alarm_id=None,
+            alarm_label=f"Preview: {raw}",
+            mode="challenge",
+            difficulty="normal",
+            fired_at=now,
+            ends_at=now + 600,
+            max_snoozes=0,
+            snooze_minutes=1,
+            max_ring_minutes=10,
+            manual=True,
+            completion_mode="all",
+            target_count=1,
+            challenge_count=1,
+            challenge_plan=json.dumps(plan, separators=(",", ":")),
+            muted=True,
+            question_source="custom" if raw in CUSTOM_TYPES else "auto",
+            challenge_type=raw,
+        )
+        token = secrets.token_urlsafe(18)
+        self.app.store.add_challenge(
+            event_id=event["id"], user_id=None, user_name="Preview",
+            token=token, question=spec["question"], answer=spec["answer"],
+            answer_type=spec["answer_type"], question_id=spec["question_id"],
+            challenge_type=spec["challenge_type"], payload=spec_payload(spec),
+        )
+        self._send_json({"ok": True, "url": f"/s/{token}", "type": raw}, 201)
+
     def question_import(self, match, body) -> None:
         self._require_admin()
         csv_text = body.get("csv")
@@ -1396,12 +1493,34 @@ class Handler(BaseHTTPRequestHandler):
         preview = self.app.engine.stop_music_preview()
         self._send_json({"ok": True, "music_preview": preview})
 
+    def music_finish_beep(self, match, body) -> None:
+        self._require_admin()
+        raw = body.get("music_id")
+        if raw in (None, "", 0, "0"):
+            music_id = None
+        else:
+            try:
+                music_id = int(raw)
+            except (TypeError, ValueError):
+                raise ApiError(400, "music_id must be a number")
+            if not self.app.store.get_music(music_id):
+                raise ApiError(404, "Music not found")
+        self.app.store.set_setting(
+            "finish_beep_music_id", "" if music_id is None else str(music_id)
+        )
+        self._send_json({"ok": True, "music_id": music_id})
+
     def music_delete(self, match, body) -> None:
         self._require_admin()
         music_id = self._int_id(match)
         row = self.app.store.get_music(music_id)
         if not row:
             raise ApiError(404, "Music not found")
+        selected_finish = self.app.store.get_setting("finish_beep_music_id") or ""
+        if str(music_id) == str(selected_finish):
+            raise ApiError(
+                409, "This track is selected as the finish beep. Choose another finish beep first."
+            )
         used = self.app.store.music_in_use(music_id)
         if used["alarm"] or used["event"]:
             label = (used["alarm"] or used["event"]).get("label") or (

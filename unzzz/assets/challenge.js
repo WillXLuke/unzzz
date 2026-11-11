@@ -7,6 +7,7 @@
   const token = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
   const S = {
     data: null, offset: 0, timer: null, submitting: false,
+    gameTimers: [],
     selection: { choice: null, color: null, cells: new Set() },
   };
 
@@ -109,6 +110,17 @@
     S.selection = { choice: null, color: null, cells: new Set() };
   }
 
+  function stopChallengeTimers() {
+    for (const id of S.gameTimers) clearInterval(id);
+    S.gameTimers = [];
+  }
+
+  function gameInterval(fn, ms) {
+    const id = setInterval(fn, ms);
+    S.gameTimers.push(id);
+    return id;
+  }
+
   function patternGridHtml(size, target, interactive) {
     const on = new Set(target || []);
     const cells = [];
@@ -202,6 +214,47 @@
           <input id="answer" type="hidden" value="">
           <button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button>
         </form>
+        ${feedback}
+      </div>`;
+    }
+    if (type === "snake") {
+      return `<div class="question-box" id="answer-area">
+        <div class="game-hud"><span>Apples <strong id="snake-score">0</strong> / 10</span><span class="muted small">Eat 10 apples.</span></div>
+        <canvas id="snake-canvas" width="320" height="320" class="snake-canvas" aria-label="Snake game"></canvas>
+        <div class="snake-joystick">
+          <button class="btn ghost tiny" type="button" data-snake-dir="up">▲</button>
+          <div class="row"><button class="btn ghost tiny" type="button" data-snake-dir="left">◀</button><button class="btn ghost tiny" type="button" data-snake-dir="down">▼</button><button class="btn ghost tiny" type="button" data-snake-dir="right">▶</button></div>
+        </div>
+        <p class="muted small" id="snake-status">Use the joystick, arrow keys or WASD.</p>
+        <form id="answer-form" autocomplete="off"><input id="answer" type="hidden" value=""><button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button></form>
+        ${feedback}
+      </div>`;
+    }
+    if (type === "whac") {
+      return `<div class="question-box" id="answer-area">
+        <div class="game-hud"><span>Moles <strong id="whac-score">0</strong> / 10</span><span class="muted small">Tap the mole.</span></div>
+        <div class="whac-grid" id="whac-grid">${Array.from({ length: 9 }, (_, i) => `<button class="whac-hole" type="button" data-whac="${i}" aria-label="Hole ${i + 1}"></button>`).join("")}</div>
+        <p class="muted small" id="whac-status">Hit 10 moles.</p>
+        <form id="answer-form" autocomplete="off"><input id="answer" type="hidden" value=""><button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button></form>
+        ${feedback}
+      </div>`;
+    }
+    if (type === "dino") {
+      return `<div class="question-box" id="answer-area">
+        <div class="game-hud"><span>Jumped <strong id="dino-score">0</strong> / 15</span><span class="muted small">Tap or press Space to jump.</span></div>
+        <canvas id="dino-canvas" width="480" height="170" class="dino-canvas" aria-label="Dino run game"></canvas>
+        <div class="row"><button class="btn primary" type="button" id="dino-jump">Jump</button></div>
+        <p class="muted small" id="dino-status">Jump over 15 obstacles.</p>
+        <form id="answer-form" autocomplete="off"><input id="answer" type="hidden" value=""><button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button></form>
+        ${feedback}
+      </div>`;
+    }
+    if (type === "piano") {
+      return `<div class="question-box" id="answer-area">
+        <div class="game-hud"><span>Tiles <strong id="piano-score">0</strong></span><span class="muted small" id="piano-clock">Tap a black tile to start · 30s</span></div>
+        <div class="piano-grid" id="piano-grid"></div>
+        <p class="muted small" id="piano-status">Do not touch the white tiles.</p>
+        <form id="answer-form" autocomplete="off"><input id="answer" type="hidden" value=""><button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button></form>
         ${feedback}
       </div>`;
     }
@@ -323,6 +376,10 @@
     if (diceButton) bindDice(diceButton, data);
     const gameBoard = $("#game2048-board");
     if (gameBoard) bind2048(gameBoard);
+    if ($("#snake-canvas")) bindSnake(data);
+    if ($("#whac-grid")) bindWhac(data);
+    if ($("#dino-canvas")) bindDino(data);
+    if ($("#piano-grid")) bindPiano(data);
     const field = $("#answer");
     if (field) setTimeout(() => field.focus(), 40);
   }
@@ -412,6 +469,275 @@
 
   // Typing-test copy/paste protection. This is intentionally broad inside the
   // answer area so the phrase cannot be copied into the input.
+  function finishGame(value, statusEl, message) {
+    stopChallengeTimers();
+    const input = $("#answer");
+    if (input) input.value = String(value);
+    if (statusEl) statusEl.textContent = message;
+    setTimeout(() => $("#answer-form")?.requestSubmit(), 350);
+  }
+
+  function bindSnake(data) {
+    const canvas = $("#snake-canvas");
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
+    const cells = 20, cell = 320 / cells, target = 10;
+    const game = {
+      snake: [{ x: 10, y: 10 }], dir: { x: 1, y: 0 }, next: { x: 1, y: 0 },
+      apple: { x: 15, y: 10 }, score: 0, over: false,
+    };
+    S.snakeGame = game;
+    const scoreEl = $("#snake-score");
+    const statusEl = $("#snake-status");
+    const placeApple = () => {
+      do {
+        game.apple = {
+          x: Math.floor(Math.random() * cells),
+          y: Math.floor(Math.random() * cells),
+        };
+      } while (game.snake.some((part) => part.x === game.apple.x && part.y === game.apple.y));
+    };
+    const reset = () => {
+      game.snake = [{ x: 10, y: 10 }];
+      game.dir = { x: 1, y: 0 };
+      game.next = { x: 1, y: 0 };
+      game.score = 0;
+      game.over = false;
+      placeApple();
+      if (scoreEl) scoreEl.textContent = "0";
+      if (statusEl) statusEl.textContent = "Crashed — start again.";
+    };
+    const draw = () => {
+      ctx.fillStyle = "#0b100c";
+      ctx.fillRect(0, 0, 320, 320);
+      ctx.strokeStyle = "#1c2a20";
+      for (let i = 1; i < cells; i++) {
+        ctx.beginPath(); ctx.moveTo(i * cell, 0); ctx.lineTo(i * cell, 320); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i * cell); ctx.lineTo(320, i * cell); ctx.stroke();
+      }
+      ctx.fillStyle = "#ff5c5c";
+      ctx.fillRect(game.apple.x * cell + 2, game.apple.y * cell + 2, cell - 4, cell - 4);
+      ctx.fillStyle = "#67e8f9";
+      game.snake.forEach((part) => ctx.fillRect(part.x * cell + 2, part.y * cell + 2, cell - 4, cell - 4));
+    };
+    const step = () => {
+      if (game.over) return;
+      if (game.next.x !== -game.dir.x || game.next.y !== -game.dir.y) game.dir = game.next;
+      const head = { x: game.snake[0].x + game.dir.x, y: game.snake[0].y + game.dir.y };
+      if (
+        head.x < 0 || head.y < 0 || head.x >= cells || head.y >= cells
+        || game.snake.some((part) => part.x === head.x && part.y === head.y)
+      ) {
+        game.over = true;
+        reset();
+        draw();
+        return;
+      }
+      game.snake.unshift(head);
+      if (head.x === game.apple.x && head.y === game.apple.y) {
+        game.score += 1;
+        if (scoreEl) scoreEl.textContent = String(game.score);
+        if (game.score >= target) {
+          game.over = true;
+          finishGame("10", statusEl, "10 apples — checking…");
+          return;
+        }
+        placeApple();
+      } else {
+        game.snake.pop();
+      }
+      draw();
+    };
+    const turn = (direction) => {
+      const map = {
+        up: { x: 0, y: -1 }, down: { x: 0, y: 1 },
+        left: { x: -1, y: 0 }, right: { x: 1, y: 0 },
+      };
+      const next = map[direction];
+      if (next) game.next = next;
+    };
+    $$("[data-snake-dir]").forEach((button) => {
+      button.addEventListener("click", () => turn(button.dataset.snakeDir));
+    });
+    document.addEventListener("keydown", (event) => {
+      if (S.snakeGame !== game) return;
+      const map = {
+        ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+        w: "up", s: "down", a: "left", d: "right",
+      };
+      const direction = map[event.key];
+      if (!direction) return;
+      event.preventDefault();
+      turn(direction);
+    });
+    placeApple();
+    draw();
+    gameInterval(step, 130);
+  }
+
+  function bindWhac(data) {
+    const grid = $("#whac-grid");
+    if (!grid) return;
+    const holes = $$("[data-whac]", grid);
+    const scoreEl = $("#whac-score");
+    const statusEl = $("#whac-status");
+    const target = 10;
+    let score = 0;
+    let active = -1;
+    const move = () => {
+      holes.forEach((hole) => hole.classList.remove("mole"));
+      active = Math.floor(Math.random() * holes.length);
+      holes[active].classList.add("mole");
+    };
+    holes.forEach((hole, index) => {
+      hole.addEventListener("click", () => {
+        if (index !== active) return;
+        score += 1;
+        if (scoreEl) scoreEl.textContent = String(score);
+        if (score >= target) {
+          finishGame("10", statusEl, "10 moles — checking…");
+          return;
+        }
+        move();
+      });
+    });
+    move();
+    gameInterval(move, 700);
+  }
+
+  function bindDino(data) {
+    const canvas = $("#dino-canvas");
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
+    const target = 15;
+    const ground = 140;
+    const game = {
+      dino: { x: 54, y: ground - 38, w: 28, h: 38, vy: 0, jumping: false },
+      obstacle: { x: 480, y: ground - 34, w: 22, h: 34 },
+      score: 0, over: false, speed: 3.4,
+    };
+    const scoreEl = $("#dino-score");
+    const statusEl = $("#dino-status");
+    const jump = () => {
+      if (S.dinoGame !== game || game.over) return;
+      if (!game.dino.jumping) {
+        game.dino.jumping = true;
+        game.dino.vy = -9.5;
+      }
+    };
+    const draw = () => {
+      ctx.fillStyle = "#0b100c"; ctx.fillRect(0, 0, 480, 170);
+      ctx.fillStyle = "#1c2a20"; ctx.fillRect(0, ground, 480, 2);
+      ctx.fillStyle = "#67e8f9";
+      ctx.fillRect(game.dino.x, game.dino.y, game.dino.w, game.dino.h);
+      ctx.fillStyle = "#ff9f43";
+      ctx.fillRect(game.obstacle.x, game.obstacle.y, game.obstacle.w, game.obstacle.h);
+    };
+    const step = () => {
+      if (game.over) return;
+      game.dino.vy += 0.7;
+      game.dino.y += game.dino.vy;
+      if (game.dino.y >= ground - game.dino.h) {
+        game.dino.y = ground - game.dino.h;
+        game.dino.vy = 0;
+        game.dino.jumping = false;
+      }
+      game.obstacle.x -= game.speed;
+      const hit = game.obstacle.x < game.dino.x + game.dino.w
+        && game.obstacle.x + game.obstacle.w > game.dino.x
+        && game.obstacle.y < game.dino.y + game.dino.h
+        && game.obstacle.y + game.obstacle.h > game.dino.y;
+      if (hit) {
+        game.score = 0;
+        game.speed = 3.4;
+        game.obstacle.x = 480;
+        if (scoreEl) scoreEl.textContent = "0";
+        if (statusEl) statusEl.textContent = "Crashed — try again.";
+      }
+      if (game.obstacle.x + game.obstacle.w < game.dino.x) {
+        game.score += 1;
+        game.speed = Math.min(6.5, game.speed + 0.08);
+        if (scoreEl) scoreEl.textContent = String(game.score);
+        if (game.score >= target) {
+          game.over = true;
+          finishGame("15", statusEl, "15 obstacles — checking…");
+          return;
+        }
+        game.obstacle.x = 480;
+      }
+      draw();
+    };
+    S.dinoGame = game;
+    $("#dino-jump")?.addEventListener("click", jump);
+    canvas.addEventListener("pointerdown", (event) => { event.preventDefault(); jump(); });
+    document.addEventListener("keydown", (event) => {
+      if (S.dinoGame !== game) return;
+      if (event.key === " " || event.key === "ArrowUp") {
+        event.preventDefault();
+        jump();
+      }
+    });
+    draw();
+    gameInterval(step, 30);
+  }
+
+  function bindPiano(data) {
+    const grid = $("#piano-grid");
+    if (!grid) return;
+    const target = 30;
+    const rows = 4, cols = 4;
+    let black = Array.from({ length: rows }, () => Math.floor(Math.random() * cols));
+    let started = false;
+    let left = target;
+    let score = 0;
+    const clock = $("#piano-clock");
+    const scoreEl = $("#piano-score");
+    const statusEl = $("#piano-status");
+    const render = () => {
+      grid.innerHTML = Array.from({ length: rows }, (_, row) =>
+        Array.from({ length: cols }, (_, col) =>
+          `<button class="piano-cell ${black[row] === col ? "black" : "white"}" type="button" data-piano-row="${row}" data-piano-col="${col}" aria-label="${black[row] === col ? "Black" : "White"} tile"></button>`
+        ).join("")
+      ).join("");
+      $$("[data-piano-row]", grid).forEach((cell) => {
+        cell.addEventListener("click", () => {
+          const row = Number(cell.dataset.pianoRow);
+          const col = Number(cell.dataset.pianoCol);
+          if (black[row] !== col) {
+            left = target;
+            started = false;
+            score = 0;
+            if (clock) clock.textContent = "Tap a black tile to start · 30s";
+            if (scoreEl) scoreEl.textContent = "0";
+            if (statusEl) statusEl.textContent = "White tile! Start again.";
+            return;
+          }
+          if (!started) {
+            started = true;
+            left = target;
+            if (statusEl) statusEl.textContent = "Do not touch the white tiles.";
+          }
+          score += 1;
+          if (scoreEl) scoreEl.textContent = String(score);
+        });
+      });
+    };
+    const shift = () => {
+      black = [Math.floor(Math.random() * cols), ...black.slice(0, rows - 1)];
+      render();
+    };
+    render();
+    gameInterval(shift, 700);
+    gameInterval(() => {
+      if (!started) return;
+      left -= 0.1;
+      if (clock) clock.textContent = `${Math.max(0, left).toFixed(1)}s`;
+      if (left <= 0) {
+        finishGame("30", statusEl, "30 seconds — checking…");
+      }
+    }, 100);
+  }
+
   function bind2048(boardEl) {
     const target = 128;
     const spawn = () => {
@@ -693,6 +1019,14 @@
       value = input.value.trim();
       if (value !== "128") {
         feedback.textContent = "Reach the 128 tile first.";
+        feedback.className = "feedback bad";
+        return;
+      }
+    } else if (["snake", "whac", "dino", "piano"].includes(type)) {
+      const input = $("#answer");
+      value = input.value.trim();
+      if (!value) {
+        feedback.textContent = "Finish the game first.";
         feedback.className = "feedback bad";
         return;
       }

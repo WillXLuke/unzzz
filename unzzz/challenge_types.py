@@ -26,6 +26,10 @@ TYPE_LABELS = {
     "typing": "Typing test",
     "dice": "Roll dice",
     "game2048": "2048",
+    "snake": "Snake",
+    "whac": "Whac-A-Mole",
+    "dino": "Dino run",
+    "piano": "Piano tiles",
 }
 COLORS = [
     {"key": "red", "name": "Red", "hex": "#ff5c5c"},
@@ -175,6 +179,33 @@ def _dice() -> dict:
     }
 
 
+def _simple_game(kind: str, target: int, question: str) -> dict:
+    return {
+        "challenge_type": kind,
+        "answer_type": "game",
+        "question": question,
+        "answer": str(target),
+        "payload": {"target": target},
+        "question_id": None,
+    }
+
+
+def _snake() -> dict:
+    return _simple_game("snake", 10, "Eat 10 apples in Snake.")
+
+
+def _whac() -> dict:
+    return _simple_game("whac", 10, "Hit 10 moles.")
+
+
+def _dino() -> dict:
+    return _simple_game("dino", 15, "Jump over 15 obstacles.")
+
+
+def _piano() -> dict:
+    return _simple_game("piano", 30, "Keep tapping black tiles for 30 seconds.")
+
+
 def _game2048() -> dict:
     target = 128
     return {
@@ -220,6 +251,14 @@ def generate_challenge(
         return _dice()
     if kind == "game2048":
         return _game2048()
+    if kind == "snake":
+        return _snake()
+    if kind == "whac":
+        return _whac()
+    if kind == "dino":
+        return _dino()
+    if kind == "piano":
+        return _piano()
     return _math(difficulty)
 
 
@@ -259,7 +298,7 @@ def check_answer(challenge_type: str, expected: str, raw: Any) -> bool:
             return int(raw) == int(expected)
         except (TypeError, ValueError):
             return False
-    if kind == "game2048":
+    if kind in ("game2048", "snake", "whac", "dino", "piano"):
         return str(raw).strip() == str(expected).strip()
     if kind == "pattern":
         if not isinstance(raw, list):

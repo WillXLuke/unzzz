@@ -56,7 +56,7 @@
       <button class="btn primary wide" type="submit">Create password</button>
     </form>
 
-    <p class="auth-foot">unzzz v<span id="auth-version">2.4.0</span> · keep this on your local network</p>
+    <p class="auth-foot">unzzz v<span id="auth-version">2.5.0</span> · keep this on your local network</p>
   </main>
 </div>
 
@@ -69,7 +69,7 @@
       <button class="tab" data-view="challenges" type="button">Challenges</button>
       <button class="tab" data-view="links" type="button">Links</button>
       <button class="tab" data-view="music" type="button">Music</button>
-      <button class="tab" data-view="history" type="button">History</button>
+      <button class="tab" data-view="logs" type="button">Logs</button>
       <button class="tab" data-view="settings" type="button">Settings</button>
     </nav>
     <div class="topbar-right">
@@ -159,6 +159,12 @@
         <span class="muted" id="question-count"></span>
       </div>
       <p class="section-lede">Your own questions and answers. A challenge alarm can use this pool instead of generated arithmetic. Text answers are compared ignoring case and extra spaces.</p>
+
+      <section class="panel stack">
+        <h3>Try a challenge</h3>
+        <p class="muted small">Open a private preview of any challenge type. Previews are not saved to logs.</p>
+        <div class="challenge-preview-list" id="challenge-preview-list"></div>
+      </section>
 
       <form id="question-form" class="panel stack" autocomplete="off">
         <input type="hidden" id="question-id">
@@ -262,14 +268,34 @@
         <h3>Using the built-in beep</h3>
         <p>Upload a track to give an alarm its own sound.</p>
       </div>
+
+      <section class="panel stack" id="finish-beep-panel">
+        <h3>Finish beep</h3>
+        <p class="muted small">Played when a person completes their final challenge. Choose any uploaded track or use the built-in rising chime.</p>
+        <label class="field">
+          <span>Finish beep sound</span>
+          <select id="finish-beep-music">
+            <option value="">Built-in finish chime</option>
+          </select>
+        </label>
+        <div class="row"><button class="btn primary" type="button" id="finish-beep-save">Save finish beep</button></div>
+        <p class="muted small" id="finish-beep-hint"></p>
+      </section>
     </section>
 
-    <section class="view" id="view-history" hidden>
+    <section class="view" id="view-logs" hidden>
       <div class="section-head">
-        <h2>Recent alarms</h2>
+        <h2>Logs</h2>
         <button class="btn ghost tiny" id="refresh-history" type="button">Refresh</button>
       </div>
-      <p class="section-lede">The last 30 rings, including who answered and why the sound stopped.</p>
+      <p class="section-lede">Service events, alarms, errors and the last 30 ring outcomes.</p>
+      <div class="table-wrap">
+        <table class="history-table">
+          <thead><tr><th>When</th><th>Level</th><th>Message</th></tr></thead>
+          <tbody id="service-logs-body"></tbody>
+        </table>
+      </div>
+      <h3 class="logs-subhead">Alarm history</h3>
       <div class="table-wrap">
         <table class="history-table">
           <thead>
@@ -368,6 +394,22 @@
           <p class="muted small" id="audio-hint"></p>
         </section>
 
+        <section class="panel stack" id="backup-panel">
+          <h3>Backup &amp; restore</h3>
+          <p class="muted small">Download a ZIP with the database, alarms, challenges, settings, logs and music. Restore stages a ZIP for the next service start; restart the service after uploading.</p>
+          <div class="row">
+            <button class="btn primary" type="button" id="backup-download">Download backup</button>
+          </div>
+          <label class="field">
+            <span>Restore from ZIP</span>
+            <input id="restore-file" type="file" accept=".zip,application/zip">
+          </label>
+          <div class="row">
+            <button class="btn danger ghost" type="button" id="backup-restore">Restore backup</button>
+          </div>
+          <p class="muted small" id="restore-hint"></p>
+        </section>
+
         <section class="panel">
           <h3>Admin password</h3>
           <form id="password-form" class="stack">
@@ -393,7 +435,7 @@
   </main>
 
   <footer class="foot">
-    unzzz <span id="version">2.4.0</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
+    unzzz <span id="version">2.5.0</span> · <span id="tz-label">UTC</span> · <a href="/healthz">health</a>
   </footer>
 
   <div id="ring-dock" class="ring-dock" role="alert" aria-live="assertive" hidden></div>
@@ -476,6 +518,10 @@
                 <option value="typing">Typing test</option>
                 <option value="dice">Roll dice</option>
                 <option value="game2048">2048</option>
+                <option value="snake">Snake</option>
+                <option value="whac">Whac-A-Mole</option>
+                <option value="dino">Dino run</option>
+                <option value="piano">Piano tiles</option>
               </select>
               <small class="hint" id="challenge-type-hint">Arithmetic generated per person.</small>
             </label>
@@ -496,6 +542,25 @@
             <input id="alarm-challenge-count" type="number" min="1" max="10" value="1" required>
             <small class="hint">Each selected person must pass this many challenges before the alarm can stop.</small>
           </label>
+          <div class="form-grid">
+            <label class="field">
+              <span>Challenge order</span>
+              <select id="alarm-challenge-order">
+                <option value="fixed">Fixed order</option>
+                <option value="random">Random</option>
+              </select>
+              <small class="hint">Fixed follows the list below. Random picks a count and order from the list each time the alarm rings.</small>
+            </label>
+            <label class="field" id="random-range-field" hidden>
+              <span>Random count range</span>
+              <div class="row compact">
+                <input id="alarm-random-min" type="number" min="1" max="10" value="1" aria-label="Minimum challenges">
+                <span>to</span>
+                <input id="alarm-random-max" type="number" min="1" max="10" value="1" aria-label="Maximum challenges">
+              </div>
+              <small class="hint">Minimum and maximum challenges per person.</small>
+            </label>
+          </div>
           <div class="field" id="challenge-plan-wrap" hidden>
             <span>Challenge order</span>
             <div class="challenge-plan-list" id="challenge-plan-list"></div>
@@ -529,6 +594,10 @@
             </select>
           </label>
         </div>
+        <label class="checkline">
+          <input id="alarm-finish-beep" type="checkbox">
+          <span>Play finish beep when a person completes their challenge</span>
+        </label>
         <label class="checkline">
           <input id="alarm-muted" type="checkbox">
           <span>Muted alarm — no sound</span>

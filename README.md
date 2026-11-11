@@ -27,13 +27,17 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   is not limited to six). Each selected user gets a private shortlink and a
   challenge. The alarm stops when **everyone selected** answers, or when a
   fixed number of correct answers is reached.
-- **Ten challenge types** — generated maths, text answer, multiple choice,
+- **Fourteen challenge types** — generated maths, text answer, multiple choice,
   random multiple choice, colour match, pattern paint (3×3, 6×6 or 9×9), a
-  five-second button hold, an exact typing test, a five-try dice roll and a
-  2048 mini-game that passes at the 128 tile.
+  five-second button hold, an exact typing test, a five-try dice roll, 2048,
+  Snake (10 apples), Whac-A-Mole (10 hits), Dino run (15 jumps) and Piano
+  tiles (30 seconds).
 - **Ordered challenge plans** — when a person has to pass more than one
   challenge, choose a different type for each step and reorder them with
   ↑ / ↓ arrows. Every selected person follows the same order.
+- **Random challenge plans** — switch the order to **Random** and choose a
+  min/max count. Each ring samples that many entries from the plan and
+  shuffles them; everyone in that ring gets the same randomized sequence.
 - **Five UI languages** — English, 中文, 日本語, Français and Deutsch, selected
   from the top-right language menu. The choice is remembered per browser;
   user-written questions, choices and alarm labels are shown as entered.
@@ -64,6 +68,11 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
   selected output device.
 - **Muted alarms** — a muted alarm still rings in the UI and keeps its
   challenge/link controls, but plays no audio or music.
+- **Finish beep** — enable a completion chime per alarm. When a person passes
+  their final challenge, unzzz plays the selected finish beep. The sound is
+  chosen in **Music → Finish beep** (any uploaded track or the built-in chime).
+- **Challenge previews** — the Challenges tab lists every type with a **Play**
+  button. Previews are private and never appear in logs.
 - **One identity per IP per ring** — when an IP completes a person's full
   challenge, the alarm remembers that identity for that ring. Reopening the
   alarm link shows “already passed” and the people still remaining; claiming a
@@ -71,6 +80,11 @@ More screens: [shared shortlink + QR](docs/shortlink.png) ·
 - **Alarm volume** — Settings shows the current system volume and a target
   alarm volume. The server saves the current level, applies the target while
   an alarm rings, and restores the saved level when the sound stops.
+- **Logs** — service startup/shutdown, alarm fire/close events, request errors
+  and the last 30 alarm outcomes, all in the **Logs** tab.
+- **Backup & restore** — download a ZIP containing the database, alarms,
+  challenges, settings, logs and music. Restore stages the ZIP and applies it
+  at the next service start, keeping a safety copy.
 - **Link retirement** — private challenge links and the last-result view stop
   working a configurable number of minutes after an alarm stops (default 30).
   The public alarm link itself follows the per-link expiration in the Links tab
@@ -164,10 +178,10 @@ Download or build the package matching the machine:
 
 ```bash
 # 64-bit PC / server
-sudo apt install ./unzzz_2.4.0_amd64.deb
+sudo apt install ./unzzz_2.5.0_amd64.deb
 
 # 64-bit Raspberry Pi OS
-sudo apt install ./unzzz_2.4.0_arm64.deb
+sudo apt install ./unzzz_2.5.0_arm64.deb
 ```
 
 The package:
@@ -184,8 +198,8 @@ both architectures from a checkout with:
 
 ```bash
 ./packaging/build-deb.sh
-# dist/unzzz_2.4.0_amd64.deb
-# dist/unzzz_2.4.0_arm64.deb
+# dist/unzzz_2.5.0_amd64.deb
+# dist/unzzz_2.5.0_arm64.deb
 ```
 
 ## Raspberry Pi install
@@ -254,8 +268,9 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
 - **Alarm editor** — label, time, repeat days or one-time date, standard vs
   challenge, 1–6 selected users, **challenge type** (maths, text, multiple
   choice, random multiple choice, colour match, pattern paint 3×3/6×6/9×9,
-  button hold, typing test, dice, 2048), **challenges per person** (1–10) and an
-  ordered plan when that count is above one, finish condition (all or fixed
+  button hold, typing test, dice, 2048, Snake, Whac-A-Mole, Dino run, Piano
+  tiles), **challenges per person** (1–10), ordered or random plan, finish
+  condition (all or fixed
   number), public shortlink for challenge alarms, music, muted sound, snooze
   limits, give-up limit. Links are managed in the **Links** tab.
 - **Skip next** — one-shot suspension of the next occurrence, available on the
@@ -273,15 +288,20 @@ the device. If `doctor` reports no player, install `alsa-utils` and restart.
   text, choice or random-choice draw from the matching pool.
 - **Music** — upload and preview tracks, then select one in an alarm. Each
   track has **Test on server** and **Stop** buttons; the test plays through the
-  server's selected playback device. A track cannot be deleted while an alarm
-  or active ring uses it.
+  server's selected playback device. A track cannot be deleted while an alarm,
+  active ring or the finish beep uses it. **Finish beep** selects a global
+  completion sound from the same library.
 - **Identity memory** — after an IP completes a full challenge, the alarm link
   shows that the identity has passed and lists who is still left. The same IP
   cannot claim another identity for that ring.
-- **History** — last 30 rings: outcome, answer ratio, reason, music.
+- **Logs** — service events, errors and the last 30 rings: outcome, answer
+  ratio, reason and music.
+- **Challenge previews** — every challenge type has a Play button in
+  Challenges for a private trial.
+- **Backup & restore** — in Settings; downloads/stages a full ZIP backup.
 - **Settings** — timezone, public base URL, challenge-link lifetime, target
-  alarm volume, current system volume, playback device, sound test, admin
-  password, version/data path.
+  alarm volume, current system volume, audio backend/device, sound test,
+  backup & restore, admin password, version/data path.
 - **Language menu** — top-right selector for English, 中文, 日本語, Français and
   Deutsch. It reloads once and is remembered in `localStorage`. User-written
   questions, choices and alarm labels stay as entered. On a minimal Pi/kiosk
@@ -321,7 +341,7 @@ The built-in beep is always available as “Built-in beep”.
 
 ## Challenge types
 
-The alarm editor offers ten types:
+The alarm editor offers fourteen types:
 
 | Type | What the phone shows | Source |
 |---|---|---|
@@ -335,6 +355,10 @@ The alarm editor offers ten types:
 | **Typing test** | type a generated phrase exactly; copy/paste blocked | generated per person |
 | **Roll dice** | roll a die and match the target; the fifth try is guaranteed | generated per person |
 | **2048** | play a 4×4 2048 board and reach the 128 tile | generated per person |
+| **Snake** | eat 10 apples with the on-screen joystick | generated per person |
+| **Whac-A-Mole** | hit 10 moles | generated per person |
+| **Dino run** | jump over 15 obstacles | generated per person |
+| **Piano tiles** | tap black tiles for 30 seconds without touching white | generated per person |
 
 Wrong answers issue a fresh challenge (and, for generated types, a new
 pattern/colour pair). **Challenges per person** controls how many correct
@@ -468,17 +492,10 @@ sudo systemctl restart unzzz
 - `beep.wav` — regenerated if missing;
 - `music/` — uploaded audio.
 
-Backup with SQLite (and copy the music directory):
+Use **Settings → Backup & restore → Download backup** for a portable ZIP
+containing the database, music, alarms, challenges, settings and logs.
 
-```bash
-sudo sqlite3 /var/lib/unzzz/unzzz.sqlite3 ".backup '/tmp/unzzz-backup.sqlite3'"
-sudo cp -a /var/lib/unzzz/music /tmp/unzzz-music-backup
-```
-
-Or stop the service and copy the whole directory. Reset by stopping the service
-and deleting `unzzz.sqlite3*` (and optionally `music/`), then set a new password.
-
-History is capped at 500 events; sessions expire after 30 days.
+Alarm history is capped at 500 events; sessions expire after 30 days.
 
 ## Troubleshooting
 
@@ -555,8 +572,9 @@ event. Press **Skip next** again to undo before the occurrence arrives.
 | Storage | `unzzz/db.py` | One SQLite connection + `RLock`, WAL, in-place v1→v2→v3 migration |
 | Scheduler/engine | `unzzz/engine.py` | 1 s ticker, one ring thread per event, targets, music |
 | Time math | `unzzz/schedule.py` | `zoneinfo`, weekday masks, validation |
-| Challenge types | `unzzz/challenge_types.py` | maths/text/choice/random-choice/colour/pattern generation and checking |
+| Challenge types | `unzzz/challenge_types.py` | maths/text/choice/random-choice/colour/pattern/games generation and checking |
 | Question CSV | `unzzz/question_csv.py` | multiple-choice CSV import and answer-letter validation |
+| Backup | `unzzz/backup.py` | ZIP export, validation and staged restore |
 | Auth | `unzzz/auth.py` | PBKDF2-SHA256, hashed sessions, throttle |
 | Sound | `unzzz/audio.py` | WAV synthesis, music formats, device args, preview/test subprocesses |
 | Volume | `unzzz/volume.py` | amixer/pactl target volume, save/restore, crash recovery |

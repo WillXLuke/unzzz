@@ -214,6 +214,7 @@ class Engine:
             target=self._tick_loop, name="unzzz-ticker", daemon=True
         )
         self._ticker.start()
+        self.store.add_service_log("info", "Service started")
         log.info(
             "engine started (tz=%s, audio=%s, %d alarm(s))",
             self._tz_name,
@@ -222,6 +223,10 @@ class Engine:
         )
 
     def stop(self) -> None:
+        try:
+            self.store.add_service_log("info", "Service stopped")
+        except Exception:
+            pass
         self._stop.set()
         self.audio.stop_preview()
         self.preview_music_id = None
@@ -384,6 +389,15 @@ class Engine:
     def _event_audio_path(self, event: dict) -> Path | None:
         return self.music_path(event.get("music_id"))
 
+    def _finish_beep_path(self) -> Path:
+        raw = self.store.get_setting("finish_beep_music_id")
+        try:
+            music_id = int(raw) if raw else 0
+        except (TypeError, ValueError):
+            music_id = 0
+        path = self.music_path(music_id) if music_id else None
+        return path or (self.data_dir / "beep_finish.wav")
+
     # ------------------------------------------------------------------ fire
     def _selected_active_users(self, alarm_id: int) -> list[dict]:
         return [
@@ -457,6 +471,16 @@ class Engine:
                             size = 3
                         step["size"] = size if size in (3, 6, 9) else 3
                     plan.append(step)
+                order = alarm.get("challenge_order", "fixed")
+                random_min = max(1, int(alarm.get("challenge_random_min", 1)))
+                random_max = max(random_min, int(alarm.get("challenge_random_max", random_min)))
+                random_max = min(random_max, len(plan) or 1)
+                if order == "random" and plan:
+                    chosen = _rng.randint(random_min, random_max)
+                    if chosen < len(plan):
+                        plan = _rng.sample(plan, chosen)
+                    _rng.shuffle(plan)
+                    challenge_count = len(plan)
                 challenge_type = plan[0]["type"] if plan else "math"
                 shared_specs = [None] * challenge_count
                 for index, step in enumerate(plan):
@@ -489,6 +513,10 @@ class Engine:
                 target_count=target_count,
                 challenge_count=challenge_count,
                 challenge_plan=json.dumps(plan, separators=(",", ":")) if plan else None,
+                challenge_order=alarm.get("challenge_order", "fixed"),
+                challenge_random_min=alarm.get("challenge_random_min", 1),
+                challenge_random_max=alarm.get("challenge_random_max", 1),
+                finish_beep=bool(alarm.get("finish_beep")),
                 muted=bool(alarm.get("muted")),
                 question_source=(
                     "custom" if any(t in CUSTOM_TYPES for t in
@@ -530,6 +558,9 @@ class Engine:
             if not manual:
                 self._advance_alarm(alarm, now)
             self._start_ring(event["id"])
+            self.store.add_service_log(
+                "info", f"Alarm fired: {alarm['label']} (event {event['id']})"
+            )
 
         log.info(
             "event %s fired for '%s' (mode=%s, participants=%d, target=%s/%s, music=%s, manual=%s)",
@@ -658,7 +689,7 @@ class Engine:
             event = self.store.get_event(event_id)
             if not event or event["state"] != "ringing":
                 return
-            if event.get("muted"):
+            if not event.get("alarm_id") or event.get("muted"):
                 return
             session = RingSession(event_id)
             self.rings[event_id] = session
@@ -740,6 +771,9 @@ class Engine:
             self._signal_ring(event_id)
             updated = self.store.get_event(event_id) or event
         self.volume.end(event_id)
+        self.store.add_service_log(
+            "info", f"Alarm closed: {updated.get('alarm_label', event_id)} — {state}: {reason}"
+        )
         log.info("event %s closed: %s (%s)", event_id, reason, state)
         return updated
 
@@ -820,6 +854,13 @@ class Engine:
         elif ctype == "game2048":
             if str(raw_answer).strip() != "128":
                 raise EngineError("Reach the 128 tile first", 400)
+        elif ctype in ("snake", "whac", "dino", "piano"):
+            challenges = self.store.get_challenge_by_token(token)
+            if not challenges:
+                raise EngineError("This link is not valid", 404)
+            expected = str(challenges.get("answer") or "")
+            if str(raw_answer).strip() != expected:
+                raise EngineError("Finish the game first", 400)
         else:
             raise EngineError("Unknown challenge type", 400)
 
@@ -853,6 +894,8 @@ class Engine:
                         challenge.get("challenge_type", "math"), challenge.get("payload"),
                     )
                     self.store.mark_challenge_answered(challenge["id"])
+                    if event.get("finish_beep") and not event.get("muted"):
+                        self.audio.play_finish(self._finish_beep_path())
                 else:
                     spec = self._next_session_question(event, challenge, solved)
                     self.store.advance_challenge(
@@ -1038,6 +1081,10 @@ class Engine:
                 json.loads(alarm["challenge_plan"])
                 if alarm.get("challenge_plan") else None
             ),
+            "challenge_order": alarm.get("challenge_order", "fixed"),
+            "challenge_random_min": alarm.get("challenge_random_min", 1),
+            "challenge_random_max": alarm.get("challenge_random_max", 1),
+            "finish_beep": bool(alarm.get("finish_beep", 0)),
             "muted": bool(alarm.get("muted", 0)),
             "question_source": alarm.get("question_source", "auto"),
             "challenge_type": alarm.get("challenge_type", "math"),
@@ -1084,6 +1131,10 @@ class Engine:
             "target_count": event.get("target_count", 1),
             "challenge_count": event.get("challenge_count", 1),
             "challenge_plan": self._event_plan(event),
+            "challenge_order": event.get("challenge_order", "fixed"),
+            "challenge_random_min": event.get("challenge_random_min", 1),
+            "challenge_random_max": event.get("challenge_random_max", 1),
+            "finish_beep": bool(event.get("finish_beep", 0)),
             "muted": bool(event.get("muted", 0)),
             "question_source": event.get("question_source", "auto"),
             "challenge_type": event.get("challenge_type", "math"),

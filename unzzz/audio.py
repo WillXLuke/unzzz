@@ -71,6 +71,28 @@ def build_beep(path: Path) -> None:
     tmp.replace(path)
 
 
+def build_finish_beep(path: Path) -> None:
+    """Build a short rising completion chime."""
+    if path.exists() and path.stat().st_size > 512:
+        return
+    frames = array.array("h")
+    for freq, seconds in ((660.0, 0.16), (880.0, 0.16), (1320.0, 0.28)):
+        n = int(SAMPLE_RATE * seconds)
+        fade = int(SAMPLE_RATE * 0.01)
+        for i in range(n):
+            env = min(1.0, i / fade, (n - i) / fade)
+            frames.append(int(32767 * 0.28 * env * math.sin(2 * math.pi * freq * i / SAMPLE_RATE)))
+        frames.extend([0] * int(SAMPLE_RATE * 0.05))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with wave.open(str(tmp), "wb") as fh:
+        fh.setnchannels(1)
+        fh.setsampwidth(2)
+        fh.setframerate(SAMPLE_RATE)
+        fh.writeframes(frames.tobytes())
+    tmp.replace(path)
+
+
 def parse_device(value: str) -> tuple[str, str] | None:
     value = (value or "").strip()
     if not value or ":" not in value:
@@ -152,6 +174,7 @@ class Audio:
         self._preview_proc: subprocess.Popen | None = None
         self._preview_thread: threading.Thread | None = None
         self._preview_error: str | None = None
+        self._finish_proc: subprocess.Popen | None = None
         self.mode = "auto"
         self.backend = "none"
         self.preferred_backend = "auto"
@@ -307,6 +330,35 @@ class Audio:
             ]
         return [self.players[player], "-q", str(path)]
 
+    def play_finish(self, path: Path | None = None) -> None:
+        """Play a short completion chime without blocking the alarm loop."""
+        if self.mode == "none":
+            return
+        path = Path(path) if path else self.data_dir / "beep_finish.wav"
+        if path == self.data_dir / "beep_finish.wav":
+            try:
+                build_finish_beep(path)
+            except OSError as exc:
+                log.warning("cannot write finish beep: %s", exc)
+                return
+        if not path.is_file():
+            return
+        argv = self.command_for(path)
+        if not argv:
+            return
+        with self._lock:
+            if self._finish_proc and self._finish_proc.poll() is None:
+                try:
+                    self._finish_proc.terminate()
+                except OSError:
+                    pass
+            try:
+                self._finish_proc = subprocess.Popen(
+                    argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            except OSError as exc:
+                log.warning("finish beep failed: %s", exc)
+
     def describe(self) -> dict:
         available = self.mode != "none" and (
             self._custom_available() if self.mode == "custom"
@@ -438,6 +490,20 @@ class Audio:
             else:
                 stop_event.wait(self.gap_seconds)
 
+    def stop_finish(self) -> None:
+        with self._lock:
+            proc = self._finish_proc
+            self._finish_proc = None
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=1)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+
     def stop_current(self) -> None:
         with self._lock:
             proc = self._current_proc
@@ -449,6 +515,7 @@ class Audio:
                 proc.terminate()
             except OSError:
                 pass
+        self.stop_finish()
 
     def start_preview(self, path: Path | None = None) -> tuple[bool, str | None]:
         """Play one music file on the server until stop_preview()."""

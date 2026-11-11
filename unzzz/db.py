@@ -70,6 +70,10 @@ CREATE TABLE IF NOT EXISTS alarms (
     target_count     INTEGER NOT NULL DEFAULT 1,
     challenge_count  INTEGER NOT NULL DEFAULT 1, -- questions per participant
     challenge_plan   TEXT,                      -- JSON ordered per-person plan
+    challenge_order  TEXT NOT NULL DEFAULT 'fixed', -- fixed | random
+    challenge_random_min INTEGER NOT NULL DEFAULT 1,
+    challenge_random_max INTEGER NOT NULL DEFAULT 1,
+    finish_beep      INTEGER NOT NULL DEFAULT 0,
     muted            INTEGER NOT NULL DEFAULT 0,
     link_expires_at  REAL,                      -- public shortlink expiry
     question_source  TEXT NOT NULL DEFAULT 'auto', -- legacy; see challenge_type
@@ -108,6 +112,10 @@ CREATE TABLE IF NOT EXISTS events (
     target_count     INTEGER NOT NULL DEFAULT 1,
     challenge_count  INTEGER NOT NULL DEFAULT 1,
     challenge_plan   TEXT,
+    challenge_order  TEXT NOT NULL DEFAULT 'fixed',
+    challenge_random_min INTEGER NOT NULL DEFAULT 1,
+    challenge_random_max INTEGER NOT NULL DEFAULT 1,
+    finish_beep      INTEGER NOT NULL DEFAULT 0,
     muted            INTEGER NOT NULL DEFAULT 0,
     question_source  TEXT NOT NULL DEFAULT 'auto', -- legacy
     challenge_type   TEXT NOT NULL DEFAULT 'math',
@@ -135,6 +143,14 @@ CREATE TABLE IF NOT EXISTS challenges (
     created_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_challenges_event ON challenges(event_id);
+
+CREATE TABLE IF NOT EXISTS service_logs (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      REAL NOT NULL,
+    level   TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_service_logs_ts ON service_logs(ts);
 
 CREATE TABLE IF NOT EXISTS event_ip_passes (
     event_id     INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -203,6 +219,10 @@ class Store:
             ("challenge_type", "TEXT NOT NULL DEFAULT 'math'"),
             ("challenge_count", "INTEGER NOT NULL DEFAULT 1"),
             ("challenge_plan", "TEXT"),
+            ("challenge_order", "TEXT NOT NULL DEFAULT 'fixed'"),
+            ("challenge_random_min", "INTEGER NOT NULL DEFAULT 1"),
+            ("challenge_random_max", "INTEGER NOT NULL DEFAULT 1"),
+            ("finish_beep", "INTEGER NOT NULL DEFAULT 0"),
             ("muted", "INTEGER NOT NULL DEFAULT 0"),
             ("link_expires_at", "REAL"),
             ("skip_next", "INTEGER NOT NULL DEFAULT 0"),
@@ -223,6 +243,10 @@ class Store:
             ("challenge_type", "TEXT NOT NULL DEFAULT 'math'"),
             ("challenge_count", "INTEGER NOT NULL DEFAULT 1"),
             ("challenge_plan", "TEXT"),
+            ("challenge_order", "TEXT NOT NULL DEFAULT 'fixed'"),
+            ("challenge_random_min", "INTEGER NOT NULL DEFAULT 1"),
+            ("challenge_random_max", "INTEGER NOT NULL DEFAULT 1"),
+            ("finish_beep", "INTEGER NOT NULL DEFAULT 0"),
             ("muted", "INTEGER NOT NULL DEFAULT 0"),
             ("shared_questions", "TEXT"),
             ("music_id", "INTEGER"),
@@ -341,7 +365,7 @@ class Store:
                     "UPDATE alarms SET slug=? WHERE id=?", (candidate, alarm_id)
                 )
 
-        self.conn.execute("PRAGMA user_version=6")
+        self.conn.execute("PRAGMA user_version=7")
         self.conn.commit()
 
     def close(self) -> None:
@@ -632,9 +656,10 @@ class Store:
                    (label, time, days_mask, once_date, enabled, mode, difficulty,
                     snooze_minutes, max_snoozes, max_ring_minutes, next_fire,
                     created_at, slug, completion_mode, target_count, challenge_count,
-                    challenge_plan, muted, question_source, challenge_type,
-                    music_id, calendar_id)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    challenge_plan, challenge_order, challenge_random_min,
+                    challenge_random_max, finish_beep, muted, question_source,
+                    challenge_type, music_id, calendar_id)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     a["label"], a["time"], a["days_mask"], a["once_date"],
                     1 if a["enabled"] else 0, a["mode"], a["difficulty"],
@@ -642,7 +667,12 @@ class Store:
                     a.get("next_fire"), now, a.get("slug"),
                     a.get("completion_mode", "all"), a.get("target_count", 1),
                     a.get("challenge_count", 1),
-                    a.get("challenge_plan"), 1 if a.get("muted") else 0,
+                    a.get("challenge_plan"),
+                    a.get("challenge_order", "fixed"),
+                    a.get("challenge_random_min", 1),
+                    a.get("challenge_random_max", 1),
+                    1 if a.get("finish_beep") else 0,
+                    1 if a.get("muted") else 0,
                     a.get("question_source", "auto"), a.get("challenge_type", "math"),
                     a.get("music_id"), a.get("calendar_id"),
                 ),
@@ -657,9 +687,10 @@ class Store:
                 """UPDATE alarms SET label=?, time=?, days_mask=?, once_date=?,
                    enabled=?, mode=?, difficulty=?, snooze_minutes=?, max_snoozes=?,
                    max_ring_minutes=?, next_fire=?, slug=?, completion_mode=?,
-                   target_count=?, challenge_count=?, challenge_plan=?, muted=?,
-                   question_source=?, challenge_type=?, music_id=?,
-                   calendar_id=? WHERE id=?""",
+                   target_count=?, challenge_count=?, challenge_plan=?,
+                   challenge_order=?, challenge_random_min=?, challenge_random_max=?,
+                   finish_beep=?, muted=?, question_source=?, challenge_type=?,
+                   music_id=?, calendar_id=? WHERE id=?""",
                 (
                     a["label"], a["time"], a["days_mask"], a["once_date"],
                     1 if a["enabled"] else 0, a["mode"], a["difficulty"],
@@ -667,7 +698,12 @@ class Store:
                     a.get("next_fire"), a.get("slug"),
                     a.get("completion_mode", "all"), a.get("target_count", 1),
                     a.get("challenge_count", 1),
-                    a.get("challenge_plan"), 1 if a.get("muted") else 0,
+                    a.get("challenge_plan"),
+                    a.get("challenge_order", "fixed"),
+                    a.get("challenge_random_min", 1),
+                    a.get("challenge_random_max", 1),
+                    1 if a.get("finish_beep") else 0,
+                    1 if a.get("muted") else 0,
                     a.get("question_source", "auto"), a.get("challenge_type", "math"),
                     a.get("music_id"), a.get("calendar_id"), alarm_id,
                 ),
@@ -716,6 +752,18 @@ class Store:
     def get_retired_link(self, slug: str) -> dict | None:
         return self._one(
             "SELECT * FROM retired_links WHERE slug = ? COLLATE NOCASE", (slug,)
+        )
+
+    def add_service_log(self, level: str, message: str) -> None:
+        self._exec(
+            "INSERT INTO service_logs(ts, level, message) VALUES(?,?,?)",
+            (time.time(), str(level)[:16], str(message)[:1000]),
+        )
+
+    def list_service_logs(self, limit: int = 200) -> list[dict]:
+        return self._all(
+            "SELECT * FROM service_logs ORDER BY ts DESC, id DESC LIMIT ?",
+            (max(1, min(1000, int(limit))),),
         )
 
     def record_ip_pass(
@@ -770,6 +818,10 @@ class Store:
         target_count: int = 1,
         challenge_count: int = 1,
         challenge_plan: str | None = None,
+        challenge_order: str = "fixed",
+        challenge_random_min: int = 1,
+        challenge_random_max: int = 1,
+        finish_beep: bool = False,
         muted: bool = False,
         question_source: str = "auto",
         challenge_type: str = "math",
@@ -783,16 +835,20 @@ class Store:
                    (alarm_id, alarm_label, mode, difficulty, state, fired_at, ends_at,
                     stop_reason, stopped_at, max_snoozes, snooze_minutes,
                     max_ring_minutes, manual, completion_mode, target_count,
-                    challenge_count, challenge_plan, muted, question_source,
-                    challenge_type, shared_questions, music_id, music_name)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    challenge_count, challenge_plan, challenge_order,
+                    challenge_random_min, challenge_random_max, finish_beep,
+                    muted, question_source, challenge_type, shared_questions,
+                    music_id, music_name)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     alarm_id, alarm_label, mode, difficulty, state, fired_at, ends_at,
                     stop_reason, stopped_at, max_snoozes, snooze_minutes,
                     max_ring_minutes, 1 if manual else 0, completion_mode,
                     target_count, challenge_count, challenge_plan,
-                    1 if muted else 0, question_source, challenge_type,
-                    shared_questions, music_id, music_name,
+                    challenge_order, challenge_random_min, challenge_random_max,
+                    1 if finish_beep else 0, 1 if muted else 0,
+                    question_source, challenge_type, shared_questions,
+                    music_id, music_name,
                 ),
             )
             event_id = int(cur.lastrowid)
@@ -816,7 +872,8 @@ class Store:
                 (*states, limit),
             )
         return self._all(
-            "SELECT * FROM events ORDER BY fired_at DESC LIMIT ?", (limit,)
+            "SELECT * FROM events WHERE alarm_id IS NOT NULL "
+            "ORDER BY fired_at DESC LIMIT ?", (limit,)
         )
 
     def list_events_with_counts(self, limit: int = 20) -> list[dict]:
@@ -825,7 +882,8 @@ class Store:
                       (SELECT COUNT(*) FROM challenges c WHERE c.event_id = e.id) AS total,
                       (SELECT COUNT(*) FROM challenges c
                         WHERE c.event_id = e.id AND c.answered_at IS NOT NULL) AS answered
-               FROM events e ORDER BY e.fired_at DESC LIMIT ?""",
+               FROM events e WHERE e.alarm_id IS NOT NULL
+               ORDER BY e.fired_at DESC LIMIT ?""",
             (limit,),
         )
 
@@ -835,7 +893,8 @@ class Store:
                       (SELECT COUNT(*) FROM challenges c WHERE c.event_id = e.id) AS total,
                       (SELECT COUNT(*) FROM challenges c
                         WHERE c.event_id = e.id AND c.answered_at IS NOT NULL) AS answered
-               FROM events e WHERE e.state IN ('ringing','snoozed')
+               FROM events e WHERE e.alarm_id IS NOT NULL
+                 AND e.state IN ('ringing','snoozed')
                ORDER BY e.fired_at DESC LIMIT 20"""
         )
 

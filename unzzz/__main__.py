@@ -15,6 +15,7 @@ from pathlib import Path
 
 from . import __version__
 from .auth import MIN_PASSWORD_LEN, Auth
+from .backup import apply_pending_restore
 from .db import Store
 from .engine import Engine
 from .schedule import detect_system_timezone
@@ -83,6 +84,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     log = logging.getLogger("unzzz")
     data_dir = Path(args.data_dir).expanduser().resolve()
     ensure_data_dir(data_dir)
+    if apply_pending_restore(data_dir):
+        log.info("applied staged backup restore")
     store = Store(data_dir / "unzzz.sqlite3")
     auth = Auth(store)
     bootstrap_password(store, auth)
