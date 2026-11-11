@@ -220,12 +220,8 @@
     if (type === "snake") {
       return `<div class="question-box" id="answer-area">
         <div class="game-hud"><span>Apples <strong id="snake-score">0</strong> / 10</span><span class="muted small">Eat 10 apples.</span></div>
-        <canvas id="snake-canvas" width="320" height="320" class="snake-canvas" aria-label="Snake game"></canvas>
-        <div class="snake-joystick">
-          <button class="btn ghost tiny" type="button" data-snake-dir="up">▲</button>
-          <div class="row"><button class="btn ghost tiny" type="button" data-snake-dir="left">◀</button><button class="btn ghost tiny" type="button" data-snake-dir="down">▼</button><button class="btn ghost tiny" type="button" data-snake-dir="right">▶</button></div>
-        </div>
-        <p class="muted small" id="snake-status">Use the joystick, arrow keys or WASD.</p>
+        <canvas id="snake-canvas" width="288" height="288" class="snake-canvas" aria-label="Snake game"></canvas>
+        <p class="muted small" id="snake-status">Swipe the board, or use arrow keys / WASD.</p>
         <form id="answer-form" autocomplete="off"><input id="answer" type="hidden" value=""><button class="btn primary" type="submit" id="answer-btn" hidden>Answer</button></form>
         ${feedback}
       </div>`;
@@ -481,10 +477,10 @@
     const canvas = $("#snake-canvas");
     const ctx = canvas?.getContext("2d");
     if (!ctx) return;
-    const cells = 20, cell = 320 / cells, target = 10;
+    const cells = 16, cell = 288 / cells, target = 10;
     const game = {
-      snake: [{ x: 10, y: 10 }], dir: { x: 1, y: 0 }, next: { x: 1, y: 0 },
-      apple: { x: 15, y: 10 }, score: 0, over: false,
+      snake: [{ x: 8, y: 8 }], dir: { x: 1, y: 0 }, next: { x: 1, y: 0 },
+      apple: { x: 12, y: 8 }, score: 0, over: false,
     };
     S.snakeGame = game;
     const scoreEl = $("#snake-score");
@@ -498,7 +494,7 @@
       } while (game.snake.some((part) => part.x === game.apple.x && part.y === game.apple.y));
     };
     const reset = () => {
-      game.snake = [{ x: 10, y: 10 }];
+      game.snake = [{ x: 8, y: 8 }];
       game.dir = { x: 1, y: 0 };
       game.next = { x: 1, y: 0 };
       game.score = 0;
@@ -509,11 +505,11 @@
     };
     const draw = () => {
       ctx.fillStyle = "#0b100c";
-      ctx.fillRect(0, 0, 320, 320);
+      ctx.fillRect(0, 0, 288, 288);
       ctx.strokeStyle = "#1c2a20";
       for (let i = 1; i < cells; i++) {
-        ctx.beginPath(); ctx.moveTo(i * cell, 0); ctx.lineTo(i * cell, 320); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0, i * cell); ctx.lineTo(320, i * cell); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(i * cell, 0); ctx.lineTo(i * cell, 288); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i * cell); ctx.lineTo(288, i * cell); ctx.stroke();
       }
       ctx.fillStyle = "#ff5c5c";
       ctx.fillRect(game.apple.x * cell + 2, game.apple.y * cell + 2, cell - 4, cell - 4);
@@ -523,11 +519,11 @@
     const step = () => {
       if (game.over) return;
       if (game.next.x !== -game.dir.x || game.next.y !== -game.dir.y) game.dir = game.next;
-      const head = { x: game.snake[0].x + game.dir.x, y: game.snake[0].y + game.dir.y };
-      if (
-        head.x < 0 || head.y < 0 || head.x >= cells || head.y >= cells
-        || game.snake.some((part) => part.x === head.x && part.y === head.y)
-      ) {
+      const head = {
+        x: (game.snake[0].x + game.dir.x + cells) % cells,
+        y: (game.snake[0].y + game.dir.y + cells) % cells,
+      };
+      if (game.snake.some((part) => part.x === head.x && part.y === head.y)) {
         game.over = true;
         reset();
         draw();
@@ -556,9 +552,23 @@
       const next = map[direction];
       if (next) game.next = next;
     };
-    $$("[data-snake-dir]").forEach((button) => {
-      button.addEventListener("click", () => turn(button.dataset.snakeDir));
+    let startPoint = null;
+    canvas.addEventListener("pointerdown", (event) => {
+      startPoint = { x: event.clientX, y: event.clientY };
+      try { canvas.setPointerCapture(event.pointerId); } catch (_err) { /* noop */ }
     });
+    canvas.addEventListener("pointerup", (event) => {
+      if (!startPoint) return;
+      const dx = event.clientX - startPoint.x;
+      const dy = event.clientY - startPoint.y;
+      startPoint = null;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
+      turn(Math.abs(dx) > Math.abs(dy)
+        ? (dx > 0 ? "right" : "left")
+        : (dy > 0 ? "down" : "up"));
+    });
+    canvas.addEventListener("pointercancel", () => { startPoint = null; });
+    canvas.addEventListener("contextmenu", (event) => event.preventDefault());
     document.addEventListener("keydown", (event) => {
       if (S.snakeGame !== game) return;
       const map = {
@@ -572,7 +582,7 @@
     });
     placeApple();
     draw();
-    gameInterval(step, 130);
+    gameInterval(step, 220);
   }
 
   function bindWhac(data) {
@@ -622,7 +632,7 @@
       if (S.dinoGame !== game || game.over) return;
       if (!game.dino.jumping) {
         game.dino.jumping = true;
-        game.dino.vy = -9.5;
+        game.dino.vy = -11.5;
       }
     };
     const draw = () => {

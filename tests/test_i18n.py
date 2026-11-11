@@ -107,6 +107,16 @@ class NewUIAssetTests(unittest.TestCase):
         self.assertIn("touch-action: none", css)
         self.assertIn("hold-active", js)
         self.assertIn("game2048-board", js)
+        self.assertIn("const cells = 16", js)
+        self.assertIn("gameInterval(step, 220)", js)
+        self.assertIn("game.dino.vy = -11.5", js)
+        self.assertNotIn("data-snake-dir", js)
+        i18n = (ASSETS / "i18n.js").read_text()
+        for key in (
+            "Swipe the board", "Snake", "Whac-A-Mole", "Dino run",
+            "Piano tiles", "Backup & restore", "Try a challenge",
+        ):
+            self.assertIn(key, i18n)
         self.assertIn("question-option-list", html)
         self.assertIn("question-option-add", html)
         self.assertIn("setting-audio-backend", html)

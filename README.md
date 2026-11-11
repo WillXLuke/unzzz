@@ -178,10 +178,10 @@ Download or build the package matching the machine:
 
 ```bash
 # 64-bit PC / server
-sudo apt install ./unzzz_2.5.0_amd64.deb
+sudo apt install ./unzzz_2.5.1_amd64.deb
 
 # 64-bit Raspberry Pi OS
-sudo apt install ./unzzz_2.5.0_arm64.deb
+sudo apt install ./unzzz_2.5.1_arm64.deb
 ```
 
 The package:
@@ -198,8 +198,8 @@ both architectures from a checkout with:
 
 ```bash
 ./packaging/build-deb.sh
-# dist/unzzz_2.5.0_amd64.deb
-# dist/unzzz_2.5.0_arm64.deb
+# dist/unzzz_2.5.1_amd64.deb
+# dist/unzzz_2.5.1_arm64.deb
 ```
 
 ## Raspberry Pi install
